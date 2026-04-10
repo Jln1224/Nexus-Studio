@@ -1,0 +1,2 @@
+# Nexus Studio
+Bem-vindos ao centro de documentação da Nexus Studio. Este projeto foca no desenvolvimento de um ecossistema robusto para gestão e catalogação de hardware de alta performance. Através da união entre a robustez da Programação Orientada a Objetos em Java e a agilidade do SQLite, construímos uma solução capaz de gerenciar especificações técnicas detalhadas, compatibilidade de sockets e eficiência energética.
