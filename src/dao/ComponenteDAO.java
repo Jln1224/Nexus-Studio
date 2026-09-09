@@ -11,8 +11,8 @@ public class ComponenteDAO {
 
     public void inserir(Componente componente) {
         String sql = """
-            INSERT INTO COMPONENTE (categoria_id, nome, fabricante, modelo, preco, tdp_watts)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO COMPONENTE (categoria_id, nome, fabricante, modelo, preco, tdp_watts, image_path)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """;
         try (Connection conn = DatabaseManager.conectar();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -23,6 +23,7 @@ public class ComponenteDAO {
             stmt.setString(4, componente.getModelo());
             stmt.setDouble(5, componente.getPreco());
             stmt.setDouble(6, componente.getTdpWatts());
+            stmt.setString(7, componente.getImagePath());
             stmt.executeUpdate();
             System.out.println("Componente inserido: " + componente.getModelo());
 
@@ -46,7 +47,8 @@ public class ComponenteDAO {
                         rs.getString("fabricante"),
                         rs.getString("modelo"),
                         rs.getDouble("preco"),
-                        rs.getDouble("tdp_watts")
+                        rs.getDouble("tdp_watts"),
+                        rs.getString("image_path")
                 ));
             }
         } catch (SQLException e) {
@@ -71,7 +73,8 @@ public class ComponenteDAO {
                         rs.getString("fabricante"),
                         rs.getString("modelo"),
                         rs.getDouble("preco"),
-                        rs.getDouble("tdp_watts")
+                        rs.getDouble("tdp_watts"),
+                        rs.getString("image_path")
                 ));
             }
         } catch (SQLException e) {
@@ -95,7 +98,8 @@ public class ComponenteDAO {
                         rs.getString("fabricante"),
                         rs.getString("modelo"),
                         rs.getDouble("preco"),
-                        rs.getDouble("tdp_watts")
+                        rs.getDouble("tdp_watts"),
+                        rs.getString("image_path")
                 );
             }
         } catch (SQLException e) {
@@ -107,7 +111,8 @@ public class ComponenteDAO {
     public void atualizar(Componente componente) {
         String sql = """
             UPDATE COMPONENTE
-            SET nome=?, fabricante=?, modelo=?, preco=?, tdp_watts=?
+            SET nome=?, fabricante=?, modelo=?, preco=?, tdp_watts=?,
+                image_path=COALESCE(?, image_path)
             WHERE id=?
         """;
         try (Connection conn = DatabaseManager.conectar();
@@ -118,12 +123,26 @@ public class ComponenteDAO {
             stmt.setString(3, componente.getModelo());
             stmt.setDouble(4, componente.getPreco());
             stmt.setDouble(5, componente.getTdpWatts());
-            stmt.setInt(6, componente.getId());
+            stmt.setString(6, componente.getImagePath());
+            stmt.setInt(7, componente.getId());
             stmt.executeUpdate();
             System.out.println("Componente atualizado: " + componente.getModelo());
 
         } catch (SQLException e) {
             System.err.println("Erro ao atualizar: " + e.getMessage());
+        }
+
+    }
+
+    public void atualizarPreco(int id, double preco) {
+        String sql = "UPDATE COMPONENTE SET preco=? WHERE id=?";
+        try (Connection conn = DatabaseManager.conectar();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setDouble(1, preco);
+            stmt.setInt(2, id);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            System.err.println("Erro ao atualizar preço: " + e.getMessage());
         }
     }
 
@@ -157,7 +176,8 @@ public class ComponenteDAO {
                         rs.getString("fabricante"),
                         rs.getString("modelo"),
                         rs.getDouble("preco"),
-                        rs.getDouble("tdp_watts")
+                        rs.getDouble("tdp_watts"),
+                        rs.getString("image_path")
                 ));
             }
         } catch (SQLException e) {
@@ -182,7 +202,8 @@ public class ComponenteDAO {
                         rs.getString("fabricante"),
                         rs.getString("modelo"),
                         rs.getDouble("preco"),
-                        rs.getDouble("tdp_watts")
+                        rs.getDouble("tdp_watts"),
+                        rs.getString("image_path")
                 ));
             }
         } catch (SQLException e) {
@@ -207,7 +228,8 @@ public class ComponenteDAO {
                         rs.getString("fabricante"),
                         rs.getString("modelo"),
                         rs.getDouble("preco"),
-                        rs.getDouble("tdp_watts")
+                        rs.getDouble("tdp_watts"),
+                        rs.getString("image_path")
                 ));
             }
         } catch (SQLException e) {
@@ -231,7 +253,8 @@ public class ComponenteDAO {
                         rs.getString("fabricante"),
                         rs.getString("modelo"),
                         rs.getDouble("preco"),
-                        rs.getDouble("tdp_watts")
+                        rs.getDouble("tdp_watts"),
+                        rs.getString("image_path")
                 ));
             }
         } catch (SQLException e) {
