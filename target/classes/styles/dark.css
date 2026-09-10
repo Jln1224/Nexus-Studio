@@ -1,0 +1,281 @@
+/* Nexus Studio Dark Theme */
+
+.root {
+    -fx-base: #292d35;
+    -fx-background-color: #292d35;
+    -fx-font-family: 'Segoe UI';
+}
+
+.app-header {
+    -fx-background-color: #1e1e2e;
+    -fx-padding: 16px 24px;
+}
+
+.brand-icon {
+    -fx-text-fill: #1D9E75;
+    -fx-font-size: 30px;
+}
+
+.brand-title {
+    -fx-text-fill: white;
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+}
+
+.brand-subtitle {
+    -fx-text-fill: #b9b9c9;
+    -fx-font-size: 11px;
+}
+
+.status-bar {
+    -fx-background-color: #343a46;
+    -fx-padding: 8px 18px;
+}
+
+.status-label {
+    -fx-text-fill: #a0a5ad;
+    -fx-font-size: 12px;
+}
+
+.content-panel {
+    -fx-background-color: #343a46;
+    -fx-text-fill: #f5f6f7;
+}
+
+.form-card {
+    -fx-background-color: #3d434f;
+    -fx-border-color: #4a5262;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-padding: 16px;
+}
+
+.field-label, .section-title {
+    -fx-text-fill: #f5f6f7;
+    -fx-font-weight: bold;
+}
+
+.section-title {
+    -fx-font-size: 14;
+}
+
+.field-error {
+    -fx-text-fill: #ff6b6b;
+    -fx-font-size: 11;
+}
+
+.success-message {
+    -fx-text-fill: #51cf66;
+    -fx-font-weight: bold;
+}
+
+.summary-card {
+    -fx-background-color: #3d434f;
+    -fx-border-color: #4a5262;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-padding: 13;
+}
+
+.summary-title {
+    -fx-text-fill: #a0a5ad;
+    -fx-font-size: 12;
+}
+
+.summary-value {
+    -fx-text-fill: #51cf66;
+    -fx-font-size: 21;
+    -fx-font-weight: bold;
+}
+
+.login-panel {
+    -fx-background-color: #343a46;
+    -fx-border-color: #4a5262;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+}
+
+.login-logo {
+    -fx-text-fill: #1D9E75;
+    -fx-font-size: 42;
+}
+
+.login-title {
+    -fx-text-fill: #f5f6f7;
+    -fx-font-size: 21;
+    -fx-font-weight: bold;
+}
+
+.primary-button {
+    -fx-background-color: #1D9E75;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-background-radius: 4;
+    -fx-padding: 8 16;
+}
+
+.primary-button:hover {
+    -fx-background-color: #168462;
+}
+
+.primary-button:pressed {
+    -fx-background-color: #0f6347;
+}
+
+.table-view {
+    -fx-border-color: #4a5262;
+    -fx-border-radius: 5;
+    -fx-control-inner-background: #343a46;
+}
+
+.table-view .column-header {
+    -fx-background-color: #1e1e2e;
+    -fx-padding: 10 8;
+}
+
+.table-view .column-header .label {
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}
+
+.table-row-cell {
+    -fx-cell-size: 40;
+    -fx-padding: 0 5;
+    -fx-text-fill: #f5f6f7;
+}
+
+.table-row-cell.even-row {
+    -fx-background-color: #343a46;
+}
+
+.table-row-cell.odd-row {
+    -fx-background-color: #3d434f;
+}
+
+.table-row-cell:selected {
+    -fx-background-color: #2d5b47;
+    -fx-text-fill: #f5f6f7;
+}
+
+.table-row-cell.estoque-zero {
+    -fx-background-color: #5a2c2c;
+}
+
+.table-row-cell.estoque-baixo {
+    -fx-background-color: #5a4d2c;
+}
+
+.combo-box, .text-field {
+    -fx-background-color: #3d434f;
+    -fx-text-fill: #f5f6f7;
+    -fx-border-color: #4a5262;
+    -fx-padding: 6 8;
+}
+
+.empty-state, .verdict {
+    -fx-text-fill: #a0a5ad;
+    -fx-padding: 16;
+}
+
+.verdict-ok {
+    -fx-text-fill: #51cf66;
+    -fx-font-weight: bold;
+}
+
+.verdict-error {
+    -fx-text-fill: #ff6b6b;
+    -fx-font-weight: bold;
+}
+
+.image-placeholder {
+    -fx-background-color: #3d434f;
+    -fx-border-color: #4a5262;
+    -fx-border-radius: 6;
+}
+
+.image-placeholder .label {
+    -fx-text-fill: #a0a5ad;
+}
+
+.socket-list {
+    -fx-padding: 4 0 14 0;
+}
+
+.socket-list .label {
+    -fx-background-color: #2d5b47;
+    -fx-text-fill: #51cf66;
+    -fx-padding: 7 11;
+    -fx-background-radius: 14;
+}
+
+.compatible-list {
+    -fx-padding: 4 0;
+}
+
+.compatible-card {
+    -fx-background-color: #3d434f;
+    -fx-border-color: #4a5262;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-padding: 12;
+}
+
+.compatibility-check {
+    -fx-background-color: #1D9E75;
+    -fx-background-radius: 20;
+    -fx-text-fill: white;
+    -fx-font-size: 16;
+    -fx-font-weight: bold;
+    -fx-padding: 1 6;
+}
+
+.compatible-name {
+    -fx-font-weight: bold;
+    -fx-text-fill: #f5f6f7;
+}
+
+.compatible-details {
+    -fx-text-fill: #a0a5ad;
+    -fx-font-size: 12;
+}
+
+.compatible-price {
+    -fx-text-fill: #51cf66;
+    -fx-font-weight: bold;
+}
+
+.tab-pane .tab-header-area {
+    -fx-padding: 6 10 0 10;
+}
+
+.toast-success {
+    -fx-padding: 11 16;
+    -fx-background-radius: 6;
+    -fx-font-weight: bold;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.5), 10, 0.2, 0, 2);
+    -fx-background-color: #2d5b47;
+    -fx-text-fill: #51cf66;
+}
+
+.toast-error {
+    -fx-padding: 11 16;
+    -fx-background-radius: 6;
+    -fx-font-weight: bold;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.5), 10, 0.2, 0, 2);
+    -fx-background-color: #5a2c2c;
+    -fx-text-fill: #ff6b6b;
+}
+
+.chart-label {
+    -fx-text-fill: #f5f6f7;
+    -fx-font-size: 10;
+}
+
+.verdict-tight {
+    -fx-text-fill: #b58105;
+    -fx-font-weight: bold;
+}
+
+.garantia-expirando {
+    -fx-background-color: #fff1bd;
+}

@@ -73,4 +73,11 @@ public class InventarioDAO {
         }
         return null;
     }
+
+    public void deletar(int componenteId) {
+        try (Connection c = DatabaseManager.conectar();
+             PreparedStatement p = c.prepareStatement("DELETE FROM INVENTARIO WHERE componente_id=?")) {
+            p.setInt(1, componenteId); p.executeUpdate();
+        } catch (SQLException e) { System.err.println("Erro ao excluir inventário: " + e.getMessage()); }
+    }
 }
