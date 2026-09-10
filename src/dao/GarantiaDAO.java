@@ -43,10 +43,24 @@ public class GarantiaDAO {
                         rs.getString("notas")
                 ));
             }
+
         } catch (SQLException e) {
             System.err.println("Erro ao listar garantias: " + e.getMessage());
         }
         return lista;
+    }
+
+    public List<Garantia> listarVencendoEm30Dias() {
+        LocalDate hoje = LocalDate.now();
+        LocalDate limite = hoje.plusDays(30);
+        List<Garantia> resultado = new ArrayList<>();
+        for (Garantia garantia : listarTodas()) {
+            if (!garantia.getDataVencimento().isBefore(hoje)
+                    && !garantia.getDataVencimento().isAfter(limite)) {
+                resultado.add(garantia);
+            }
+        }
+        return resultado;
     }
 
     public List<Garantia> listarPorComponente(int componenteId) {

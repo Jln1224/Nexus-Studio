@@ -118,7 +118,7 @@ public class DatabaseManager {
             try {
                 stmt.execute("ALTER TABLE COMPONENTE ADD COLUMN image_path TEXT");
             } catch (SQLException ignored) {
-                // Banco existente: a coluna jÃ¡ foi criada.
+                // Banco existente: a coluna já foi criada.
             }
             stmt.execute(sqlEspecificacao);
             stmt.execute(sqlCompatibilidade);
@@ -128,9 +128,14 @@ public class DatabaseManager {
             stmt.execute(sqlLog);
             stmt.execute(sqlGarantia);
             adicionarColunaSeNecessario(stmt, "USUARIO", "password", "TEXT");
-            stmt.execute("UPDATE USUARIO SET password=senha WHERE password IS NULL");
+            stmt.execute("UPDATE USUARIO SET password = senha WHERE password IS NULL");
             adicionarColunaSeNecessario(stmt, "HISTORICO_PRECO", "data_alteracao", "TEXT");
             adicionarColunaSeNecessario(stmt, "INVENTARIO", "data_entrada", "TEXT");
+            adicionarColunaSeNecessario(stmt, "GARANTIA", "data_compra", "TEXT");
+            adicionarColunaSeNecessario(stmt, "GARANTIA", "prazo_meses", "INTEGER");
+            adicionarColunaSeNecessario(stmt, "GARANTIA", "data_vencimento", "TEXT");
+            adicionarColunaSeNecessario(stmt, "GARANTIA", "fornecedor", "TEXT");
+            adicionarColunaSeNecessario(stmt, "GARANTIA", "numero_nota", "TEXT");
             inserirCategoriasPadrao(conn);
             inserirUsuariosPadrao(conn);
             System.out.println("Banco de dados inicializado: " + DATABASE_FILE.toAbsolutePath());
@@ -152,7 +157,7 @@ public class DatabaseManager {
         try (PreparedStatement p = conn.prepareStatement(sql)) {
             p.setString(1, "admin"); p.setString(2, "Administrador"); p.setString(3, "nexus123"); p.setString(4, "ADMIN"); p.addBatch();
             p.setString(1, "operador"); p.setString(2, "Operador"); p.setString(3, "op123"); p.setString(4, "OPERADOR"); p.addBatch();
-            p.setString(1, "usuario"); p.setString(2, "UsuÃ¡rio"); p.setString(3, "nexus123"); p.setString(4, "USUARIO"); p.addBatch();
+            p.setString(1, "usuario"); p.setString(2, "Usuário"); p.setString(3, "nexus123"); p.setString(4, "USUARIO"); p.addBatch();
             p.executeBatch();
         }
     }
@@ -170,7 +175,7 @@ public class DatabaseManager {
                     .sorted(Comparator.comparingLong(DatabaseManager::lastModified).reversed())
                     .skip(10).forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) {} });
         } catch (IOException ignored) {
-            // A falha de backup nÃ£o deve impedir a utilizaÃ§Ã£o do catÃ¡logo.
+            // A falha de backup não deve impedir a utilização do catálogo.
         }
     }
 
@@ -183,7 +188,7 @@ public class DatabaseManager {
         try {
             stmt.execute("ALTER TABLE " + tabela + " ADD COLUMN " + coluna + " " + tipo);
         } catch (SQLException ignorada) {
-            // Banco existente: a coluna jÃ¡ estÃ¡ disponÃ­vel.
+            // Banco existente: a coluna já está disponível.
         }
     }
 
@@ -191,11 +196,11 @@ public class DatabaseManager {
         String sql = "INSERT OR IGNORE INTO CATEGORIA (nome, descricao) VALUES (?, ?)";
         String[][] categorias = {
                 {"Processador", "CPUs para computadores"},
-                {"Placa-mÃ£e", "Placas-mÃ£e e chipsets"},
-                {"MemÃ³ria RAM", "MÃ³dulos de memÃ³ria"},
-                {"Placa de vÃ­deo", "GPUs dedicadas"},
+                {"Placa-mãe", "Placas-mãe e chipsets"},
+                {"Memória RAM", "Módulos de memória"},
+                {"Placa de vídeo", "GPUs dedicadas"},
                 {"Armazenamento", "SSD e HD"},
-                {"Fonte", "Fontes de alimentaÃ§Ã£o"}
+                {"Fonte", "Fontes de alimentação"}
         };
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             for (String[] categoria : categorias) {

@@ -20,10 +20,17 @@ import database.DatabaseManager;
 import model.LogEntry;
 import model.Usuario;
 import javafx.animation.FadeTransition;
+import javafx.animation.Interpolator;
+import javafx.animation.KeyFrame;
+import javafx.animation.KeyValue;
 import javafx.animation.PauseTransition;
+import javafx.animation.ScaleTransition;
+import javafx.animation.Timeline;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyObjectWrapper;
+import javafx.beans.property.DoubleProperty;
+import javafx.beans.property.SimpleDoubleProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.collections.transformation.FilteredList;
@@ -56,6 +63,7 @@ import model.Especificacao;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -68,6 +76,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.kordamp.ikonli.javafx.FontIcon;
 
 public class NexusStudioApp extends Application {
     private static final String TEAL = "#1D9E75";
@@ -84,6 +93,7 @@ public class NexusStudioApp extends Application {
     private final TableView<Componente> tabela = new TableView<>();
     private final ObservableList<Componente> componentes = FXCollections.observableArrayList();
     private final FilteredList<Componente> componentesVisiveis = new FilteredList<>(componentes);
+    private final ObservableList<Componente> componentesPagina = FXCollections.observableArrayList();
     private final ObservableList<EstoqueLinha> estoque = FXCollections.observableArrayList();
     private Label statusLabel;
     private TextField buscaComponentes;
@@ -110,6 +120,13 @@ public class NexusStudioApp extends Application {
     private Usuario usuarioAtual;
     private Scene cenaPrincipal;
     private boolean temaEscuro;
+    private FlowPane cartoesComponentes;
+    private StackPane visualizacaoComponentes;
+    private boolean mostrarCartoes;
+    private Label breadcrumb;
+    private StackPane buscaOverlay;
+    private TextField buscaGlobal;
+    private ListView<Componente> resultadosBusca;
 
     @Override
     public void start(Stage stage) {
@@ -131,6 +148,8 @@ public class NexusStudioApp extends Application {
         Tab monteSeuPcTab = criarAbaMonteSeuPc();
         Tab compararTab = criarAbaComparar();
         Tab garantiaTab = criarAbaGarantia();
+        configurarIconeAbas(dashboard, componentesTab, cadastroTab, relatoriosTab, compatibilidadeTab,
+                historicoTab, estoqueTab, monteSeuPcTab, compararTab, garantiaTab);
         abas = new TabPane(
                 dashboard, componentesTab, cadastroTab, relatoriosTab, compatibilidadeTab, historicoTab,
                 estoqueTab, monteSeuPcTab, compararTab, garantiaTab
@@ -141,28 +160,54 @@ public class NexusStudioApp extends Application {
         configurarAtualizacaoAba(estoqueTab, () -> { atualizarTabela(componenteDAO.listarTodos()); atualizarEstoque(); });
         configurarAtualizacaoAba(monteSeuPcTab, () -> atualizarTabela(componenteDAO.listarTodos()));
         if (SessionManager.admin()) {
-            abas.getTabs().addAll(criarAbaUsuarios(), criarAbaLogs(), criarAbaConfiguracoes());
+            Tab usuarios = criarAbaUsuarios();
+            Tab logs = criarAbaLogs();
+            Tab configuracoes = criarAbaConfiguracoes();
+            usuarios.setGraphic(icone("fas-users"));
+            logs.setGraphic(icone("fas-clipboard-list"));
+            configuracoes.setGraphic(icone("fas-cog"));
+            abas.getTabs().addAll(usuarios, logs, configuracoes);
         }
         if (!SessionManager.atual().isOperador()) {
             abas.getTabs().stream().filter(t -> Set.of("Cadastrar", "Estoque").contains(t.getText()))
                     .forEach(t -> t.setDisable(true));
         }
         abas.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        temaEscuro = PreferencesManager.darkTheme();
         BorderPane raiz = new BorderPane();
-        raiz.setTop(criarCabecalho());
+        breadcrumb = new Label();
+        breadcrumb.getStyleClass().add("breadcrumb");
+        HBox trilha = new HBox(breadcrumb);
+        trilha.getStyleClass().add("breadcrumb-bar");
+        raiz.setTop(new VBox(criarCabecalho(), trilha));
         raiz.setCenter(abas);
         raiz.setBottom(criarBarraStatus());
         VBox toastArea = new VBox();
         toastArea.setPickOnBounds(false);
         StackPane camada = new StackPane(raiz, toastArea);
+        buscaOverlay = criarBuscaOverlay();
+        camada.getChildren().add(buscaOverlay);
         StackPane.setAlignment(toastArea, Pos.TOP_RIGHT);
         StackPane.setMargin(toastArea, new Insets(70, 18, 0, 0));
         toasts = new ToastManager(toastArea);
         Scene cena = new Scene(camada, 1220, 780);
         cenaPrincipal = cena;
-        temaEscuro = PreferencesManager.darkTheme();
         aplicarEstilo(cena);
         configurarAtalhos(cena);
+        abas.getSelectionModel().selectedItemProperty().addListener((obs, antigo, atual) -> {
+            if (atual == null) return;
+            atualizarBreadcrumb(atual);
+            Node conteudo = atual.getContent();
+            if (conteudo != null) {
+                conteudo.setOpacity(0);
+                FadeTransition transicao = new FadeTransition(Duration.millis(220), conteudo);
+                transicao.setFromValue(0);
+                transicao.setToValue(1);
+                transicao.setInterpolator(Interpolator.EASE_OUT);
+                transicao.play();
+            }
+        });
+        atualizarBreadcrumb(abas.getSelectionModel().getSelectedItem());
         stage.setMinWidth(900);
         stage.setMinHeight(600);
         stage.setTitle("Nexus Studio");
@@ -179,8 +224,8 @@ public class NexusStudioApp extends Application {
         splash.initModality(Modality.APPLICATION_MODAL);
         ProgressBar progresso = new ProgressBar();
         progresso.setPrefWidth(260);
-        Label texto = new Label("Inicializando catÃƒÂ¡logo...");
-        VBox caixa = new VBox(14, new Label("Ã¢Å¡â„¢ NEXUS STUDIO"), texto, progresso);
+        Label texto = new Label("Inicializando catálogo...");
+        VBox caixa = new VBox(14, new Label("⚙ NEXUS STUDIO"), texto, progresso);
         caixa.setAlignment(Pos.CENTER);
         caixa.setPadding(new Insets(32));
         Scene cena = new Scene(caixa, 360, 190);
@@ -191,7 +236,7 @@ public class NexusStudioApp extends Application {
         PauseTransition espera = new PauseTransition(Duration.seconds(2));
         espera.setOnFinished(e -> splash.close());
         espera.play();
-        // showAndWait garante que a tela de login jamais apareÃƒÂ§a antes do perÃƒÂ­odo mÃƒÂ­nimo.
+        // showAndWait garante que a tela de login jamais apareça antes do período mínimo.
         splash.showAndWait();
         long restante = 2000 - (System.currentTimeMillis() - inicio);
         if (restante > 0) try { Thread.sleep(restante); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
@@ -200,22 +245,22 @@ public class NexusStudioApp extends Application {
     private boolean mostrarLogin(Stage owner) {
         Properties credenciais = new Properties();
         try (InputStream entrada = getClass().getResourceAsStream("/credentials.properties")) {
-            if (entrada != null) credenciais.load(entrada);
+            if (entrada != null) credenciais.load(new InputStreamReader(entrada, StandardCharsets.UTF_8));
         } catch (IOException ignored) {
-            // Os valores padrÃƒÂ£o permitem iniciar mesmo sem o arquivo de configuraÃƒÂ§ÃƒÂ£o.
+            // Os valores padrão permitem iniciar mesmo sem o arquivo de configuração.
         }
         Stage login = new Stage();
         login.initOwner(owner);
         login.initModality(Modality.APPLICATION_MODAL);
-        login.setTitle("Login Ã¢â‚¬â€ Nexus Studio");
+        login.setTitle("Login — Nexus Studio");
 
         Label logo = new Label("\u2699");
         logo.getStyleClass().add("login-logo");
         Label titulo = new Label("NEXUS STUDIO");
         titulo.getStyleClass().add("login-title");
-        Label subtitulo = new Label("Acesse o catÃƒÂ¡logo de hardware");
+        Label subtitulo = new Label("Acesse o catálogo de hardware");
         subtitulo.getStyleClass().add("brand-subtitle");
-        TextField usuario = campo("UsuÃƒÂ¡rio");
+        TextField usuario = campo("Usuário");
         usuario.setText("admin");
         PasswordField senha = new PasswordField();
         senha.setPromptText("Senha");
@@ -228,7 +273,7 @@ public class NexusStudioApp extends Application {
         final boolean[] autenticado = {false};
         Runnable autenticar = () -> {
             Usuario encontrado = usuarioDAO.autenticar(usuario.getText().trim(), senha.getText());
-            // Compatibilidade com instalaÃƒÂ§ÃƒÂµes antigas que sÃƒÂ³ possuÃƒÂ­am credentials.properties.
+            // Compatibilidade com instalações antigas que só possuíam credentials.properties.
             if (encontrado == null && usuario.getText().trim().equals(credenciais.getProperty("username", "admin"))
                     && senha.getText().equals(credenciais.getProperty("password", "nexus123"))) {
                 encontrado = new Usuario(0, "admin", "Administrador", senha.getText(), "ADMIN", true);
@@ -240,7 +285,7 @@ public class NexusStudioApp extends Application {
                 logDAO.registrar(encontrado.username(), "LOGIN", "SESSAO", "Login realizado");
                 login.close();
             } else {
-                erro.setText("UsuÃƒÂ¡rio ou senha incorretos");
+                erro.setText("Usuário ou senha incorretos");
                 erro.setVisible(true);
             }
         };
@@ -267,18 +312,19 @@ public class NexusStudioApp extends Application {
         icone.getStyleClass().add("brand-icon");
         Label titulo = new Label("NEXUS STUDIO");
         titulo.getStyleClass().add("brand-title");
-        Label subtitulo = new Label("CatÃƒÂ¡logo e centro de compatibilidade de hardware");
+        Label subtitulo = new Label("Catálogo e centro de compatibilidade de hardware");
         subtitulo.getStyleClass().add("brand-subtitle");
         Button tema = new Button();
-        tema.setText(temaEscuro ? "Ã¢Ëœâ‚¬" : "Ã¢ËœÂ¾");
-        tema.setTooltip(new Tooltip("Alternar tema (preferÃƒÂªncia salva)"));
+        tema.setGraphic(icone(temaEscuro ? "fas-sun" : "fas-moon"));
+        tema.setTooltip(new Tooltip("Alternar tema (preferência salva)"));
+        adicionarRipple(tema);
         tema.setOnAction(e -> {
             temaEscuro = !temaEscuro;
             PreferencesManager.setDarkTheme(temaEscuro);
-            tema.setText(temaEscuro ? "Ã¢Ëœâ‚¬" : "Ã¢ËœÂ¾");
+            tema.setGraphic(icone(temaEscuro ? "fas-sun" : "fas-moon"));
             if (cenaPrincipal != null) aplicarEstilo(cenaPrincipal);
         });
-        Label usuario = new Label(SessionManager.nome() + " (" + (SessionManager.admin() ? "admin" : "usuÃƒÂ¡rio") + ")");
+        Label usuario = new Label(SessionManager.nome() + " (" + (SessionManager.admin() ? "admin" : "usuário") + ")");
         usuario.getStyleClass().add("brand-subtitle");
         VBox marca = new VBox(2, titulo, subtitulo, usuario);
         HBox cabecalho = new HBox(12, icone, marca, tema);
@@ -287,6 +333,117 @@ public class NexusStudioApp extends Application {
         cabecalho.setAlignment(Pos.CENTER_LEFT);
         cabecalho.getStyleClass().add("app-header");
         return cabecalho;
+    }
+
+    private Node icone(String literal) {
+        FontIcon icon = new FontIcon(literal);
+        icon.setIconSize(14);
+        icon.getStyleClass().add("nexus-icon");
+        return icon;
+    }
+
+    private void configurarIconeAbas(Tab... tabs) {
+        String[] icons = {"fas-chart-bar", "fas-microchip", "fas-plus-circle", "fas-file-alt",
+                "fas-check-circle", "fas-history", "fas-boxes", "fas-desktop",
+                "fas-exchange-alt", "fas-shield-alt"};
+        for (int i = 0; i < tabs.length && i < icons.length; i++) tabs[i].setGraphic(icone(icons[i]));
+    }
+
+    private void atualizarBreadcrumb(Tab tab) {
+        if (breadcrumb != null) breadcrumb.setText(tab == null ? "Nexus Studio" : "Nexus Studio  /  " + tab.getText());
+    }
+
+    private void animarContador(Label label, double destino, java.util.function.Function<Double, String> formatador) {
+        if (label == null) return;
+        double inicial;
+        try {
+            inicial = Double.parseDouble(label.getText().replaceAll("[^0-9.,-]", "").replace(',', '.'));
+        } catch (RuntimeException e) {
+            inicial = 0;
+        }
+        DoubleProperty valor = new SimpleDoubleProperty(inicial);
+        valor.addListener((obs, antigo, atual) -> label.setText(formatador.apply(atual.doubleValue())));
+        Timeline animacao = new Timeline(
+                new KeyFrame(Duration.ZERO, new KeyValue(valor, inicial)),
+                new KeyFrame(Duration.millis(480), new KeyValue(valor, destino, Interpolator.EASE_OUT)));
+        animacao.play();
+    }
+
+    private StackPane criarBuscaOverlay() {
+        buscaGlobal = new TextField();
+        buscaGlobal.setPromptText("Buscar componentes, fabricantes e modelos...");
+        buscaGlobal.setPrefHeight(42);
+        resultadosBusca = new ListView<>();
+        resultadosBusca.setMaxHeight(260);
+        resultadosBusca.setPlaceholder(mensagemVazia("Digite para buscar no catálogo."));
+        resultadosBusca.setCellFactory(view -> componenteCell());
+        resultadosBusca.setOnMouseClicked(event -> {
+            if (event.getClickCount() == 2) selecionarResultadoGlobal();
+        });
+        buscaGlobal.textProperty().addListener((obs, antigo, atual) -> atualizarResultadosBusca(atual));
+        buscaGlobal.setOnAction(event -> selecionarResultadoGlobal());
+        VBox painel = new VBox(10, new Label("Busca rápida  •  Ctrl+K"), buscaGlobal, resultadosBusca);
+        painel.getStyleClass().add("search-overlay");
+        painel.setMaxWidth(620);
+        painel.setMaxHeight(360);
+        StackPane camada = new StackPane(painel);
+        camada.setAlignment(Pos.TOP_CENTER);
+        camada.setPadding(new Insets(24, 20, 20, 20));
+        camada.setVisible(false);
+        camada.setManaged(false);
+        camada.setOnMouseClicked(event -> {
+            if (event.getTarget() == camada) ocultarBuscaGlobal();
+        });
+        return camada;
+    }
+
+    private void atualizarResultadosBusca(String termo) {
+        if (resultadosBusca == null) return;
+        String chave = normalizar(termo);
+        resultadosBusca.getItems().setAll(componenteDAO.listarTodos().stream()
+                .filter(c -> chave.isBlank() || normalizar(texto(c.getNome())).contains(chave)
+                        || normalizar(texto(c.getFabricante())).contains(chave)
+                        || normalizar(texto(c.getModelo())).contains(chave))
+                .limit(30).toList());
+    }
+
+    private void mostrarBuscaGlobal() {
+        if (buscaOverlay == null) return;
+        buscaOverlay.setVisible(true);
+        buscaOverlay.setManaged(true);
+        buscaOverlay.setOpacity(0);
+        FadeTransition entrada = new FadeTransition(Duration.millis(160), buscaOverlay);
+        entrada.setToValue(1);
+        entrada.play();
+        buscaGlobal.clear();
+        atualizarResultadosBusca("");
+        Platform.runLater(buscaGlobal::requestFocus);
+    }
+
+    private void ocultarBuscaGlobal() {
+        if (buscaOverlay == null) return;
+        FadeTransition saida = new FadeTransition(Duration.millis(120), buscaOverlay);
+        saida.setToValue(0);
+        saida.setOnFinished(event -> {
+            buscaOverlay.setVisible(false);
+            buscaOverlay.setManaged(false);
+        });
+        saida.play();
+    }
+
+    private void selecionarResultadoGlobal() {
+        if (resultadosBusca == null) return;
+        Componente selecionado = resultadosBusca.getSelectionModel().getSelectedItem();
+        if (selecionado == null && !resultadosBusca.getItems().isEmpty()) selecionado = resultadosBusca.getItems().get(0);
+        if (selecionado == null) return;
+        Componente escolhido = selecionado;
+        ocultarBuscaGlobal();
+        selecionarAba("Componentes");
+        Platform.runLater(() -> {
+            buscaComponentes.setText(escolhido.getNome());
+            selecionarPorId(escolhido.getId());
+            mostrarDetalheJanela(escolhido);
+        });
     }
 
     private HBox criarBarraStatus() {
@@ -303,11 +460,12 @@ public class NexusStudioApp extends Application {
         dashboardCategorias = new Label("--");
         dashboardMenorPreco = new Label("--");
         dashboardMaiorTdp = new Label("--");
-        HBox cartoes = new HBox(12,
+        HBox cartoes = new HBox(16,
                 cartaoResumo("Total de componentes", dashboardTotal),
                 cartaoResumo("Categorias", dashboardCategorias),
-                cartaoResumo("Menor preÃƒÂ§o", dashboardMenorPreco),
+                cartaoResumo("Menor preço", dashboardMenorPreco),
                 cartaoResumo("Maior TDP", dashboardMaiorTdp));
+        cartoes.setPadding(new Insets(16));
         cartoes.setFillHeight(true);
 
         CategoryAxis categorias = new CategoryAxis();
@@ -320,14 +478,14 @@ public class NexusStudioApp extends Application {
         componentesPorCategoriaChart.setAnimated(false);
         CategoryAxis tdpCategorias = new CategoryAxis();
         NumberAxis tdpValores = new NumberAxis();
-        tdpValores.setLabel("TDP mÃƒÂ©dio (W)");
+        tdpValores.setLabel("TDP médio (W)");
         tdpMedioPorCategoriaChart = new BarChart<>(tdpCategorias, tdpValores);
-        tdpMedioPorCategoriaChart.setTitle("TDP mÃƒÂ©dio por categoria");
+        tdpMedioPorCategoriaChart.setTitle("TDP médio por categoria");
         tdpMedioPorCategoriaChart.setLegendVisible(false);
         tdpMedioPorCategoriaChart.setAnimated(false);
 
         precoPorFabricanteChart = new PieChart();
-        precoPorFabricanteChart.setTitle("PreÃƒÂ§o mÃƒÂ©dio por fabricante");
+        precoPorFabricanteChart.setTitle("Preço médio por fabricante");
         precoPorFabricanteChart.setAnimated(false);
         HBox graficos = new HBox(16, componentesPorCategoriaChart, tdpMedioPorCategoriaChart, precoPorFabricanteChart);
         HBox.setHgrow(componentesPorCategoriaChart, Priority.ALWAYS);
@@ -347,14 +505,20 @@ public class NexusStudioApp extends Application {
     }
 
     private VBox cartaoResumo(String titulo, Label valor) {
-        Label nome = new Label(titulo);
-        nome.getStyleClass().add("summary-title");
-        valor.getStyleClass().add("summary-value");
-        VBox cartao = new VBox(6, nome, valor);
-        cartao.setPrefHeight(82);
-        cartao.setMinWidth(170);
+        Label nome = new Label(titulo.toUpperCase(Locale.ROOT));
+        nome.setStyle("-fx-text-fill: #94a3b8; -fx-font-size: 11px;");
+        valor.setStyle("-fx-text-fill: #ffffff; -fx-font-size: 28px; -fx-font-weight: bold;");
+        VBox cartao = new VBox(4, nome, valor);
+        cartao.setStyle(
+                "-fx-background-color: #1a1d27;" +
+                "-fx-border-color: #2e3148 #2e3148 #2e3148 #1D9E75;" +
+                "-fx-border-width: 1 1 1 4;" +
+                "-fx-background-radius: 8;" +
+                "-fx-border-radius: 8;" +
+                "-fx-padding: 20 24 20 24;"
+        );
+        cartao.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(cartao, Priority.ALWAYS);
-        cartao.getStyleClass().add("summary-card");
         return cartao;
     }
 
@@ -362,12 +526,17 @@ public class NexusStudioApp extends Application {
         if (dashboardTotal == null) return;
         List<Componente> lista = componenteDAO.listarTodos();
         List<Categoria> categorias = categoriaDAO.listarTodas();
-        dashboardTotal.setText(String.valueOf(lista.size()));
-        dashboardCategorias.setText(String.valueOf(categorias.size()));
-        dashboardMenorPreco.setText(lista.isEmpty() ? "--" :
-                String.format("R$ %.2f", lista.stream().mapToDouble(Componente::getPreco).min().orElse(0)));
-        dashboardMaiorTdp.setText(lista.isEmpty() ? "--" :
-                String.format("%.0f W", lista.stream().mapToDouble(Componente::getTdpWatts).max().orElse(0)));
+        animarContador(dashboardTotal, lista.size(), valor -> String.format("%.0f", valor));
+        animarContador(dashboardCategorias, categorias.size(), valor -> String.format("%.0f", valor));
+        if (lista.isEmpty()) {
+            dashboardMenorPreco.setText("--");
+            dashboardMaiorTdp.setText("--");
+        } else {
+            animarContador(dashboardMenorPreco, lista.stream().mapToDouble(Componente::getPreco).min().orElse(0),
+                    valor -> String.format("R$ %.2f", valor));
+            animarContador(dashboardMaiorTdp, lista.stream().mapToDouble(Componente::getTdpWatts).max().orElse(0),
+                    valor -> String.format("%.0f W", valor));
+        }
 
         Map<Integer, String> nomesCategorias = new HashMap<>();
         categorias.forEach(categoria -> nomesCategorias.put(categoria.getId(), categoria.getNome()));
@@ -404,6 +573,27 @@ public class NexusStudioApp extends Application {
         precoPorFabricanteChart.getData().clear();
         porFabricante.forEach((fabricante, valores) ->
                 precoPorFabricanteChart.getData().add(new PieChart.Data(fabricante, valores[0] / valores[1])));
+        Platform.runLater(() -> aplicarCoresDashboard());
+    }
+
+    private void aplicarCoresDashboard() {
+        String[] barras = {"#1D9E75", "#3b82f6", "#8b5cf6"};
+        BarChart<?, ?>[] charts = {componentesPorCategoriaChart, tdpMedioPorCategoriaChart};
+        for (BarChart<?, ?> chart : charts) {
+            for (int i = 0; i < barras.length; i++) {
+                final String cor = barras[i];
+                chart.lookupAll(".default-color" + i + ".chart-bar")
+                        .forEach(node -> node.setStyle("-fx-bar-fill: " + cor + ";"));
+            }
+        }
+        String[] fatias = {"#ef4444", "#3b82f6", "#1D9E75"};
+        int indice = 0;
+        for (PieChart.Data data : precoPorFabricanteChart.getData()) {
+            if (data.getNode() != null) {
+                data.getNode().setStyle("-fx-pie-color: " + fatias[indice % fatias.length] + ";");
+            }
+            indice++;
+        }
     }
 
     private void adicionarRotuloGrafico(Node node, String texto) {
@@ -425,16 +615,45 @@ public class NexusStudioApp extends Application {
         buscaComponentes = campo("Buscar por nome, fabricante ou modelo...");
         buscaComponentes.textProperty().addListener((obs, antigo, atual) -> aplicarBuscaComponentes());
         Button limparBusca = new Button("\u2715");
+        limparBusca.setGraphic(icone("fas-times"));
+        limparBusca.setText("");
         limparBusca.setTooltip(new Tooltip("Limpar busca"));
         limparBusca.setOnAction(event -> buscaComponentes.clear());
         HBox busca = new HBox(6, buscaComponentes, limparBusca);
         busca.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(buscaComponentes, Priority.ALWAYS);
-        ToolBar barra = new ToolBar(atualizar, excluir, new Separator(), busca);
+        mostrarCartoes = PreferencesManager.componentCards();
+        Button alternarVisualizacao = new Button();
+        alternarVisualizacao.setTooltip(new Tooltip("Alternar entre tabela e cartões"));
+        alternarVisualizacao.setGraphic(icone(mostrarCartoes ? "fas-table" : "fas-th-large"));
+        adicionarRipple(alternarVisualizacao);
+        alternarVisualizacao.setOnAction(event -> {
+            mostrarCartoes = !mostrarCartoes;
+            PreferencesManager.setComponentCards(mostrarCartoes);
+            alternarVisualizacao.setGraphic(icone(mostrarCartoes ? "fas-table" : "fas-th-large"));
+            atualizarVisualizacaoComponentes();
+        });
+        ToolBar barra = new ToolBar(atualizar, excluir, new Separator(), alternarVisualizacao, busca);
         tabela.getSelectionModel().selectedItemProperty().addListener((obs, antigo, atual) -> mostrarDetalhes(atual));
+        tabela.setOnMouseClicked(event -> {
+            if (event.getClickCount() == 2 && event.getButton() == javafx.scene.input.MouseButton.PRIMARY) {
+                mostrarDetalheJanela(tabela.getSelectionModel().getSelectedItem());
+            }
+        });
         SplitPane divisao = new SplitPane(new VBox(10, barra, tabela), criarPainelDetalhes());
         divisao.setDividerPositions(.72);
         VBox.setVgrow(tabela, Priority.ALWAYS);
+        cartoesComponentes = new FlowPane(12, 12);
+        cartoesComponentes.setPadding(new Insets(12));
+        cartoesComponentes.setPrefWrapLength(900);
+        cartoesComponentes.getStyleClass().add("component-card-grid");
+        ScrollPane cartoesScroll = new ScrollPane(cartoesComponentes);
+        cartoesScroll.setFitToWidth(true);
+        cartoesScroll.setVisible(mostrarCartoes);
+        cartoesScroll.setManaged(mostrarCartoes);
+        visualizacaoComponentes = new StackPane(divisao, cartoesScroll);
+        divisao.setVisible(!mostrarCartoes);
+        divisao.setManaged(!mostrarCartoes);
         tamanhoPagina = new ComboBox<>(FXCollections.observableArrayList(15, 30, 50, 100));
         tamanhoPagina.setValue(PreferencesManager.pageSize());
         if (!tamanhoPagina.getItems().contains(tamanhoPagina.getValue())) tamanhoPagina.setValue(15);
@@ -444,9 +663,19 @@ public class NexusStudioApp extends Application {
         });
         paginacaoComponentes = new Pagination(1, 0);
         paginacaoComponentes.currentPageIndexProperty().addListener((obs, old, value) -> atualizarPaginaComponentes());
-        VBox lista = new VBox(8, new HBox(8, new Label("Itens por pÃƒÂ¡gina:"), tamanhoPagina), divisao, paginacaoComponentes);
-        VBox.setVgrow(divisao, Priority.ALWAYS);
+        VBox lista = new VBox(8, new HBox(8, new Label("Itens por página:"), tamanhoPagina), visualizacaoComponentes, paginacaoComponentes);
+        VBox.setVgrow(visualizacaoComponentes, Priority.ALWAYS);
         return new Tab("Componentes", lista);
+    }
+
+    private void atualizarVisualizacaoComponentes() {
+        if (visualizacaoComponentes == null || visualizacaoComponentes.getChildren().size() < 2) return;
+        Node tabelaView = visualizacaoComponentes.getChildren().get(0);
+        Node cartoesView = visualizacaoComponentes.getChildren().get(1);
+        tabelaView.setVisible(!mostrarCartoes);
+        tabelaView.setManaged(!mostrarCartoes);
+        cartoesView.setVisible(mostrarCartoes);
+        cartoesView.setManaged(mostrarCartoes);
     }
 
     private void aplicarBuscaComponentes() {
@@ -470,6 +699,32 @@ public class NexusStudioApp extends Application {
         int de = pagina * tamanho;
         int ate = Math.min(de + tamanho, componentesVisiveis.size());
         tabela.getItems().setAll(componentesVisiveis.subList(de, ate));
+        if (cartoesComponentes != null) {
+            cartoesComponentes.getChildren().setAll(componentesVisiveis.subList(de, ate).stream()
+                    .map(this::criarCartaoComponente).toList());
+        }
+    }
+
+    private HBox criarCartaoComponente(Componente componente) {
+        Label nome = new Label(texto(componente.getNome()));
+        nome.getStyleClass().add("component-card-title");
+        Label fabricante = new Label(texto(componente.getFabricante()) + " · " + texto(componente.getModelo()));
+        fabricante.getStyleClass().add("component-card-subtitle");
+        Label preco = new Label(String.format("R$ %.2f", componente.getPreco()));
+        preco.getStyleClass().add("compatible-price");
+        Label tdp = new Label(String.format("%.0f W TDP", componente.getTdpWatts()));
+        VBox infos = new VBox(5, nome, fabricante, preco, tdp);
+        infos.setPadding(new Insets(12));
+        HBox.setHgrow(infos, Priority.ALWAYS);
+        HBox card = new HBox(8, icone("fas-microchip"), infos);
+        card.setPrefWidth(260);
+        card.setMinHeight(112);
+        card.getStyleClass().add("component-card");
+        card.setOnMouseClicked(event -> {
+            tabela.getSelectionModel().select(componente);
+            if (event.getClickCount() == 2) mostrarDetalheJanela(componente);
+        });
+        return card;
     }
 
     private VBox criarPainelDetalhes() {
@@ -478,23 +733,23 @@ public class NexusStudioApp extends Application {
         imagemDetalhe.setFitHeight(150);
         imagemDetalhe.setPreserveRatio(true);
         imagemPlaceholder = new Label("\u2699\nSem imagem");
-        imagemPlaceholder.setStyle("-fx-font-size: 28px; -fx-text-alignment: center;");
+        imagemPlaceholder.getStyleClass().add("image-placeholder-icon");
         StackPane imagem = new StackPane(imagemDetalhe, imagemPlaceholder);
         imagem.getStyleClass().add("image-placeholder");
         imagem.setPrefHeight(170);
         detalheNome = new Label("Selecione um componente");
         detalheNome.getStyleClass().add("section-title");
-        detalheDados = new Label("Os detalhes e o histÃƒÂ³rico aparecerÃƒÂ£o aqui.");
+        detalheDados = new Label("Os detalhes e o histórico aparecerão aqui.");
         detalheDados.setWrapText(true);
         Button escolher = botao("Adicionar imagem");
         escolher.setDisable(!SessionManager.atual().isOperador());
         escolher.setOnAction(event -> escolherImagem());
-        novoPreco = campo("Novo preÃƒÂ§o (R$)");
-        Button atualizarPreco = botao("Atualizar preÃƒÂ§o");
+        novoPreco = campo("Novo preço (R$)");
+        Button atualizarPreco = botao("Atualizar preço");
         atualizarPreco.setDisable(!SessionManager.atual().isOperador());
         atualizarPreco.setOnAction(event -> atualizarPrecoSelecionado());
         VBox painel = new VBox(12, imagem, detalheNome, detalheDados,
-                new Separator(), rotulo("Alterar preÃƒÂ§o"), novoPreco, atualizarPreco, escolher);
+                new Separator(), rotulo("Alterar preço"), novoPreco, atualizarPreco, escolher);
         painel.setPadding(new Insets(16));
         painel.setMinWidth(270);
         painel.getStyleClass().add("content-panel");
@@ -504,13 +759,13 @@ public class NexusStudioApp extends Application {
     private void mostrarDetalhes(Componente componente) {
         if (componente == null) {
             detalheNome.setText("Selecione um componente");
-            detalheDados.setText("Os detalhes e o histÃƒÂ³rico aparecerÃƒÂ£o aqui.");
+            detalheDados.setText("Os detalhes e o histórico aparecerão aqui.");
             imagemDetalhe.setImage(null);
             imagemPlaceholder.setVisible(true);
             return;
         }
         detalheNome.setText(componente.getNome());
-        detalheDados.setText(String.format("Fabricante: %s%nModelo: %s%nPreÃƒÂ§o: R$ %.2f%nTDP: %.0f W",
+        detalheDados.setText(String.format("Fabricante: %s%nModelo: %s%nPreço: R$ %.2f%nTDP: %.0f W",
                 texto(componente.getFabricante()), componente.getModelo(), componente.getPreco(), componente.getTdpWatts()));
         imagemDetalhe.setImage(null);
         imagemPlaceholder.setVisible(true);
@@ -520,6 +775,40 @@ public class NexusStudioApp extends Application {
             imagemPlaceholder.setVisible(false);
         }
         novoPreco.clear();
+    }
+
+    private void mostrarDetalheJanela(Componente componente) {
+        if (componente == null) return;
+        Stage janela = new Stage();
+        janela.initOwner(cenaPrincipal == null ? null : cenaPrincipal.getWindow());
+        janela.initModality(Modality.NONE);
+        Label titulo = new Label(componente.getNome());
+        titulo.getStyleClass().add("login-title");
+        Label dados = new Label(String.format("Fabricante: %s%nModelo: %s%nPreço: R$ %.2f%nTDP: %.0f W",
+                texto(componente.getFabricante()), texto(componente.getModelo()),
+                componente.getPreco(), componente.getTdpWatts()));
+        dados.setWrapText(true);
+        Label imagemTexto = new Label("⚙\nSem imagem");
+        imagemTexto.getStyleClass().add("image-placeholder-icon");
+        StackPane imagem = new StackPane(imagemTexto);
+        imagem.setPrefSize(300, 190);
+        imagem.getStyleClass().add("image-placeholder");
+        if (componente.getImagePath() != null && !componente.getImagePath().isBlank()
+                && Files.exists(Path.of(componente.getImagePath()))) {
+            ImageView foto = new ImageView(new Image(Path.of(componente.getImagePath()).toUri().toString()));
+            foto.setFitWidth(280);
+            foto.setFitHeight(170);
+            foto.setPreserveRatio(true);
+            imagem.getChildren().setAll(foto);
+        }
+        VBox conteudo = new VBox(14, imagem, titulo, dados);
+        conteudo.setPadding(new Insets(22));
+        conteudo.getStyleClass().add("content-panel");
+        Scene cena = new Scene(conteudo, 360, 390);
+        aplicarEstilo(cena);
+        janela.setTitle("Detalhes — " + componente.getNome());
+        janela.setScene(cena);
+        janela.show();
     }
 
     private void escolherImagem() {
@@ -551,13 +840,13 @@ public class NexusStudioApp extends Application {
             if (preco < 0) throw new NumberFormatException();
             componenteDAO.atualizarPreco(selecionado.getId(), preco);
             historicoDAO.inserir(new HistoricoPreco(0, selecionado.getId(), preco, LocalDateTime.now().toString()));
-            registrar("ATUALIZAR", "COMPONENTE", "PreÃƒÂ§o id=" + selecionado.getId());
+            registrar("ATUALIZAR", "COMPONENTE", "Preço id=" + selecionado.getId());
             atualizarTabela(componenteDAO.listarTodos());
             selecionarPorId(selecionado.getId());
             atualizarGrafico();
-            mostrarInfo("PreÃƒÂ§o atualizado e registrado no histÃƒÂ³rico.");
+            mostrarInfo("Preço atualizado e registrado no histórico.");
         } catch (NumberFormatException e) {
-            mostrarErro("Informe um preÃƒÂ§o vÃƒÂ¡lido.");
+            mostrarErro("Informe um preço válido.");
         }
     }
 
@@ -570,7 +859,7 @@ public class NexusStudioApp extends Application {
         TextField nome = campo("Nome do componente");
         TextField fabricante = campo("Fabricante");
         TextField modelo = campo("Modelo");
-        TextField preco = campo("PreÃƒÂ§o em R$");
+        TextField preco = campo("Preço em R$");
         TextField tdp = campo("TDP em watts");
         Label erroCategoria = mensagemCampo();
         Label erroNome = mensagemCampo();
@@ -586,7 +875,7 @@ public class NexusStudioApp extends Application {
         formulario.addRow(1, rotulo("Nome"), campoComErro(nome, erroNome));
         formulario.addRow(2, rotulo("Fabricante"), campoComErro(fabricante, erroFabricante));
         formulario.addRow(3, rotulo("Modelo"), campoComErro(modelo, erroModelo));
-        formulario.addRow(4, rotulo("PreÃƒÂ§o (R$)"), campoComErro(preco, erroPreco));
+        formulario.addRow(4, rotulo("Preço (R$)"), campoComErro(preco, erroPreco));
         formulario.addRow(5, rotulo("TDP (W)"), campoComErro(tdp, erroTdp));
         formulario.getColumnConstraints().addAll(new ColumnConstraints(130), colunaExpansivel());
         Button salvar = botao("Cadastrar componente");
@@ -605,15 +894,15 @@ public class NexusStudioApp extends Application {
         salvar.setOnAction(event -> {
             sucesso.setVisible(false);
             boolean valido = true;
-            valido &= validarObrigatorio(nome, erroNome, "Nome ÃƒÂ© obrigatÃƒÂ³rio.");
-            valido &= validarObrigatorio(fabricante, erroFabricante, "Fabricante ÃƒÂ© obrigatÃƒÂ³rio.");
-            valido &= validarObrigatorio(modelo, erroModelo, "Modelo ÃƒÂ© obrigatÃƒÂ³rio.");
+            valido &= validarObrigatorio(nome, erroNome, "Nome é obrigatório.");
+            valido &= validarObrigatorio(fabricante, erroFabricante, "Fabricante é obrigatório.");
+            valido &= validarObrigatorio(modelo, erroModelo, "Modelo é obrigatório.");
             Categoria categoria = categoriaCombo.getValue();
             if (categoria == null) {
-                exibirMensagem(erroCategoria, "Categoria ÃƒÂ© obrigatÃƒÂ³ria.");
+                exibirMensagem(erroCategoria, "Categoria é obrigatória.");
                 valido = false;
             } else esconderMensagem(erroCategoria);
-            Double precoNumerico = validarPositivo(preco, erroPreco, "PreÃƒÂ§o deve ser maior que zero.");
+            Double precoNumerico = validarPositivo(preco, erroPreco, "Preço deve ser maior que zero.");
             Double tdpNumerico = validarPositivo(tdp, erroTdp, "TDP deve ser maior que zero.");
             if (precoNumerico == null || tdpNumerico == null) valido = false;
             if (!valido) return;
@@ -722,7 +1011,7 @@ public class NexusStudioApp extends Application {
                         continue;
                     }
                     componenteDAO.inserir(new Componente(categoriaId, nome, fabricante, modelo, preco, tdp));
-                    registrar("CRIAR", "COMPONENTE", "ImportaÃƒÂ§ÃƒÂ£o CSV: " + nome);
+                    registrar("CRIAR", "COMPONENTE", "Importação CSV: " + nome);
                     importados++;
                 } catch (NumberFormatException ex) {
                     ignorados++;
@@ -733,7 +1022,7 @@ public class NexusStudioApp extends Application {
             atualizarDashboard();
             mostrarInfo(importados + " componentes importados, " + ignorados + " linhas ignoradas");
         } catch (IOException ex) {
-            mostrarErro("NÃƒÂ£o foi possÃƒÂ­vel ler o arquivo CSV: " + ex.getMessage());
+            mostrarErro("Não foi possível ler o arquivo CSV: " + ex.getMessage());
         }
     }
 
@@ -768,16 +1057,16 @@ public class NexusStudioApp extends Application {
             Files.writeString(arquivo, csv, StandardCharsets.UTF_8);
             mostrarInfo("Exemplo CSV salvo em: " + arquivo);
         } catch (IOException ex) {
-            mostrarErro("NÃƒÂ£o foi possÃƒÂ­vel exportar o exemplo CSV: " + ex.getMessage());
+            mostrarErro("Não foi possível exportar o exemplo CSV: " + ex.getMessage());
         }
     }
 
     private Tab criarAbaRelatorios() {
         ComboBox<String> tipo = new ComboBox<>(FXCollections.observableArrayList(
-                "Todos", "Faixa de preÃƒÂ§o", "TDP mÃƒÂ¡ximo", "Fabricante"));
+                "Todos", "Faixa de preço", "TDP máximo", "Fabricante"));
         tipo.setValue("Todos");
         TextField valor1 = campo("Valor / fabricante");
-        TextField valor2 = campo("PreÃƒÂ§o mÃƒÂ¡ximo");
+        TextField valor2 = campo("Preço máximo");
         Button aplicar = botao("Aplicar filtro");
         Button exportar = botao("Exportar PDF");
         Button excel = botao("Exportar Excel");
@@ -786,29 +1075,29 @@ public class NexusStudioApp extends Application {
             try {
                 resultado.getItems().setAll(filtrar(tipo.getValue(), valor1.getText(), valor2.getText()));
             } catch (NumberFormatException e) {
-                mostrarErro("Os valores do relatÃƒÂ³rio devem ser nÃƒÂºmeros vÃƒÂ¡lidos.");
+                mostrarErro("Os valores do relatório devem ser números válidos.");
             }
         });
         tipo.valueProperty().addListener((obs, antigo, atual) -> {
-            boolean faixa = "Faixa de preÃƒÂ§o".equals(atual);
+            boolean faixa = "Faixa de preço".equals(atual);
             valor2.setDisable(!faixa);
             valor2.setVisible(faixa);
         });
         valor2.setDisable(true);
         valor2.setVisible(false);
         exportar.setOnAction(event -> exportarComponentesPdf(new ArrayList<>(resultado.getItems()),
-                "relatÃƒÂ³rio filtrado"));
+                "relatório filtrado"));
         excel.setOnAction(event -> exportarExcel());
-        return new Tab("RelatÃƒÂ³rios", painel(new ToolBar(tipo, valor1, valor2, aplicar, exportar, excel), resultado));
+        return new Tab("Relatórios", painel(new ToolBar(tipo, valor1, valor2, aplicar, exportar, excel), resultado));
     }
 
     private Tab criarAbaCompatibilidade() {
         ComboBox<Componente> combo = comboComponentes("Selecione um componente");
-        Label socketsTitulo = new Label("Sockets e padrÃƒÂµes cadastrados");
+        Label socketsTitulo = new Label("Sockets e padrões cadastrados");
         socketsTitulo.getStyleClass().add("section-title");
         FlowPane sockets = new FlowPane(8, 8);
         sockets.getStyleClass().add("socket-list");
-        Label compativeisTitulo = new Label("Componentes compatÃƒÂ­veis");
+        Label compativeisTitulo = new Label("Componentes compatíveis");
         compativeisTitulo.getStyleClass().add("section-title");
         VBox compativeis = new VBox(8, new Label("Selecione um componente para consultar."));
         compativeis.getStyleClass().add("compatible-list");
@@ -818,10 +1107,10 @@ public class NexusStudioApp extends Application {
             Componente selecionado = combo.getValue();
             if (selecionado == null) return;
             List<Compatibilidade> registros = compatibilidadeDAO.listarPorComponente(selecionado.getId());
-            if (registros.isEmpty()) sockets.getChildren().add(new Label("Nenhum socket ou padrÃƒÂ£o cadastrado."));
+            if (registros.isEmpty()) sockets.getChildren().add(new Label("Nenhum socket ou padrão cadastrado."));
             registros.forEach(registro -> {
                 Label nome = new Label(registro.getSocketTipo() + formatarPadrao(registro.getPadrao()));
-                Button remover = new Button("Ãƒâ€”");
+                Button remover = new Button("×");
                 remover.setOnAction(e -> {
                     if (!confirmarExclusao("Excluir compatibilidade", "Remover este registro?")) return;
                     undoManager.push("DELETE_COMPATIBILIDADE", registro.getComponenteId(), registro);
@@ -842,7 +1131,7 @@ public class NexusStudioApp extends Application {
                             if (outro != null) encontrados.put(outro.getId(), outro);
                         }
                     }));
-            if (encontrados.isEmpty()) compativeis.getChildren().add(new Label("Nenhum componente compatÃƒÂ­vel encontrado."));
+            if (encontrados.isEmpty()) compativeis.getChildren().add(new Label("Nenhum componente compatível encontrado."));
             encontrados.values().forEach(componente -> compativeis.getChildren().add(criarCartaoCompativel(componente)));
         });
         VBox conteudo = new VBox(12, rotulo("Componente para consultar"), combo,
@@ -860,11 +1149,11 @@ public class NexusStudioApp extends Application {
         TableView<ComparacaoLinha> tabelaComparacao = new TableView<>();
         tabelaComparacao.setPlaceholder(new Label("Selecione dois componentes para comparar."));
         tabelaComparacao.getColumns().setAll(
-                colunaComparacao("CaracterÃ¯Â¿Â½stica", ComparacaoLinha::caracteristica),
+                colunaComparacao("Característica", ComparacaoLinha::caracteristica),
                 colunaComparacao("Componente A", ComparacaoLinha::primeiro),
                 colunaComparacao("Componente B", ComparacaoLinha::segundo));
         tabelaComparacao.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
-        Label diferenca = new Label("DiferenÃ¯Â¿Â½a de preÃ¯Â¿Â½o: -");
+        Label diferenca = new Label("Diferença de preço: -");
         Label socketsCompartilhados = new Label("Sockets compartilhados: -");
         Label veredito = new Label("Selecione dois componentes para comparar.");
         veredito.getStyleClass().add("verdict");
@@ -873,7 +1162,7 @@ public class NexusStudioApp extends Application {
             Componente b = segundo.getValue();
             tabelaComparacao.getItems().clear();
             if (a == null || b == null || a == b) {
-                diferenca.setText("DiferenÃ¯Â¿Â½a de preÃ¯Â¿Â½o: -");
+                diferenca.setText("Diferença de preço: -");
                 socketsCompartilhados.setText("Sockets compartilhados: -");
                 veredito.setText("Selecione dois componentes diferentes para comparar.");
                 veredito.getStyleClass().removeAll("verdict-ok", "verdict-error");
@@ -888,15 +1177,15 @@ public class NexusStudioApp extends Application {
                     new ComparacaoLinha("Nome", texto(a.getNome()), texto(b.getNome())),
                     new ComparacaoLinha("Fabricante", texto(a.getFabricante()), texto(b.getFabricante())),
                     new ComparacaoLinha("Modelo", texto(a.getModelo()), texto(b.getModelo())),
-                    new ComparacaoLinha("PreÃ¯Â¿Â½o", String.format("R$ %.2f", a.getPreco()), String.format("R$ %.2f", b.getPreco())),
+                    new ComparacaoLinha("Preço", String.format("R$ %.2f", a.getPreco()), String.format("R$ %.2f", b.getPreco())),
                     new ComparacaoLinha("TDP", String.format("%.0f W", a.getTdpWatts()), String.format("%.0f W", b.getTdpWatts())),
-                    new ComparacaoLinha("EspecificaÃ¯Â¿Â½Ã¯Â¿Â½es", formatarEspecificacoes(a.getId()), formatarEspecificacoes(b.getId())),
+                    new ComparacaoLinha("Especificações", formatarEspecificacoes(a.getId()), formatarEspecificacoes(b.getId())),
                     new ComparacaoLinha("Sockets", formatarSockets(socketsA), formatarSockets(socketsB)));
-            diferenca.setText(String.format("DiferenÃ¯Â¿Â½a de preÃ¯Â¿Â½o: R$ %.2f (%s)", Math.abs(a.getPreco() - b.getPreco()),
-                    a.getPreco() <= b.getPreco() ? "A Ã¯Â¿Â½ mais barata" : "B Ã¯Â¿Â½ mais barata"));
+            diferenca.setText(String.format("Diferença de preço: R$ %.2f (%s)", Math.abs(a.getPreco() - b.getPreco()),
+                    a.getPreco() <= b.getPreco() ? "A é mais barata" : "B é mais barata"));
             socketsCompartilhados.setText("Sockets compartilhados: " + (compartilhados.isEmpty() ? "nenhum" : String.join(", ", compartilhados)));
             boolean compativel = !compartilhados.isEmpty();
-            veredito.setText(compativel ? "Veredito: componentes compatÃ¯Â¿Â½veis." : "Veredito: nenhum socket compatÃ¯Â¿Â½vel encontrado.");
+            veredito.setText(compativel ? "Veredito: componentes compatíveis." : "Veredito: nenhum socket compatível encontrado.");
             veredito.getStyleClass().removeAll("verdict-ok", "verdict-error");
             veredito.getStyleClass().add(compativel ? "verdict-ok" : "verdict-error");
         };
@@ -919,6 +1208,7 @@ public class NexusStudioApp extends Application {
                                                                     java.util.function.Function<ComparacaoLinha, T> valor) {
         TableColumn<ComparacaoLinha, T> coluna = new TableColumn<>(titulo);
         coluna.setCellValueFactory(dado -> new ReadOnlyObjectWrapper<>(valor.apply(dado.getValue())));
+        estilizarCabecalho(coluna, "fas-list");
         return coluna;
     }
 
@@ -948,22 +1238,22 @@ public class NexusStudioApp extends Application {
             Path arquivo = desktop.resolve("nexus-comparacao-" + LocalDate.now() + ".pdf");
             try (PdfWriter writer = new PdfWriter(arquivo.toString()); PdfDocument pdf = new PdfDocument(writer);
                  Document documento = new Document(pdf)) {
-                documento.add(new Paragraph("Nexus Studio - ComparaÃ¯Â¿Â½Ã¯Â¿Â½o de componentes").setBold());
+                documento.add(new Paragraph("Nexus Studio - Comparação de componentes").setBold());
                 documento.add(new Paragraph("Gerado em " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
                 Table tabelaPdf = new Table(UnitValue.createPercentArray(new float[]{2, 4, 4})).useAllAvailableWidth();
-                tabelaPdf.addHeaderCell("CaracterÃ¯Â¿Â½stica"); tabelaPdf.addHeaderCell(a.getNome()); tabelaPdf.addHeaderCell(b.getNome());
+                tabelaPdf.addHeaderCell("Característica"); tabelaPdf.addHeaderCell(a.getNome()); tabelaPdf.addHeaderCell(b.getNome());
                 String[][] linhas = {{"Fabricante", texto(a.getFabricante()), texto(b.getFabricante())},
                         {"Modelo", texto(a.getModelo()), texto(b.getModelo())},
-                        {"PreÃ¯Â¿Â½o", String.format("R$ %.2f", a.getPreco()), String.format("R$ %.2f", b.getPreco())},
+                        {"Preço", String.format("R$ %.2f", a.getPreco()), String.format("R$ %.2f", b.getPreco())},
                         {"TDP", String.format("%.0f W", a.getTdpWatts()), String.format("%.0f W", b.getTdpWatts())},
-                        {"EspecificaÃ¯Â¿Â½Ã¯Â¿Â½es", formatarEspecificacoes(a.getId()), formatarEspecificacoes(b.getId())},
+                        {"Especificações", formatarEspecificacoes(a.getId()), formatarEspecificacoes(b.getId())},
                         {"Sockets", formatarSockets(sockets(a)), formatarSockets(sockets(b))}};
                 for (String[] linha : linhas) for (String valor : linha) tabelaPdf.addCell(valor);
                 documento.add(tabelaPdf);
             }
             registrar("EXPORTAR", "COMPARACAO", arquivo.toString());
-            mostrarInfo("ComparaÃ¯Â¿Â½Ã¯Â¿Â½o exportada em: " + arquivo);
-        } catch (Exception e) { mostrarErro("NÃ¯Â¿Â½o foi possÃ¯Â¿Â½vel gerar a comparaÃ¯Â¿Â½Ã¯Â¿Â½o: " + e.getMessage()); }
+            mostrarInfo("Comparação exportada em: " + arquivo);
+        } catch (Exception e) { mostrarErro("Não foi possível gerar a comparação: " + e.getMessage()); }
     }
     private Tab criarAbaHistorico() {
         historicoCombo = comboComponentes("Selecione um componente");
@@ -971,14 +1261,14 @@ public class NexusStudioApp extends Application {
         NumberAxis eixoX = new NumberAxis();
         NumberAxis eixoY = new NumberAxis();
         eixoX.setLabel("Registro");
-        eixoY.setLabel("PreÃƒÂ§o (R$)");
+        eixoY.setLabel("Preço (R$)");
         historicoChart = new LineChart<>(eixoX, eixoY);
-        historicoChart.setTitle("EvoluÃƒÂ§ÃƒÂ£o do preÃƒÂ§o");
+        historicoChart.setTitle("Evolução do preço");
         historicoChart.setCreateSymbols(true);
         VBox conteudo = new VBox(12, new HBox(10, rotulo("Componente"), historicoCombo), historicoChart);
         conteudo.setPadding(new Insets(18));
         VBox.setVgrow(historicoChart, Priority.ALWAYS);
-        return new Tab("HistÃƒÂ³rico de preÃƒÂ§os", conteudo);
+        return new Tab("Histórico de preços", conteudo);
     }
 
     private void atualizarGrafico() {
@@ -1003,7 +1293,7 @@ public class NexusStudioApp extends Application {
                 colunaEstoque("Componente", linha -> linha.componente().getNome()),
                 colunaEstoque("Modelo", linha -> linha.componente().getModelo()),
                 colunaEstoque("Quantidade", EstoqueLinha::quantidade),
-                colunaEstoque("LocalizaÃƒÂ§ÃƒÂ£o", linha -> texto(linha.localizacao())));
+                colunaEstoque("Localização", linha -> texto(linha.localizacao())));
         tabelaEstoque.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
         tabelaEstoque.setRowFactory(view -> new TableRow<>() {
             @Override protected void updateItem(EstoqueLinha item, boolean empty) {
@@ -1014,7 +1304,7 @@ public class NexusStudioApp extends Application {
             }
         });
         TextField quantidade = campo("Quantidade");
-        TextField localizacao = campo("LocalizaÃƒÂ§ÃƒÂ£o");
+        TextField localizacao = campo("Localização");
         Button atualizar = botao("Atualizar selecionado");
         Button excluirEstoque = botao("Excluir estoque");
         boolean podeEditarEstoque = SessionManager.atual().isOperador();
@@ -1030,7 +1320,7 @@ public class NexusStudioApp extends Application {
                 registrar("ATUALIZAR", "INVENTARIO", "componente=" + linha.componente().getId());
                 atualizarEstoque();
                 mostrarInfo("Estoque atualizado.");
-            } catch (NumberFormatException e) { mostrarErro("A quantidade deve ser um nÃƒÂºmero inteiro nÃƒÂ£o negativo."); }
+            } catch (NumberFormatException e) { mostrarErro("A quantidade deve ser um número inteiro não negativo."); }
         });
         excluirEstoque.setOnAction(event -> {
             EstoqueLinha linha=tabelaEstoque.getSelectionModel().getSelectedItem();
@@ -1044,7 +1334,7 @@ public class NexusStudioApp extends Application {
             if (atual != null) { quantidade.setText(String.valueOf(atual.quantidade())); localizacao.setText(texto(atual.localizacao())); }
         });
         estoqueResumo = new Label();
-        HBox formulario = new HBox(10, rotulo("Quantidade"), quantidade, rotulo("LocalizaÃƒÂ§ÃƒÂ£o"), localizacao, atualizar, excluirEstoque);
+        HBox formulario = new HBox(10, rotulo("Quantidade"), quantidade, rotulo("Localização"), localizacao, atualizar, excluirEstoque);
         VBox conteudo = new VBox(10, estoqueResumo, formulario, tabelaEstoque);
         conteudo.setPadding(new Insets(16));
         VBox.setVgrow(tabelaEstoque, Priority.ALWAYS);
@@ -1070,9 +1360,9 @@ public class NexusStudioApp extends Application {
 
     private Tab criarAbaMonteSeuPc() {
         ComboBox<Componente> processador = comboComponentes("Selecione o processador");
-        ComboBox<Componente> placaMae = comboComponentes("Selecione a placa-mÃƒÂ£e");
-        ComboBox<Componente> memoria = comboComponentes("Selecione a memÃƒÂ³ria RAM");
-        ComboBox<Componente> gpu = comboComponentes("Selecione a placa de vÃƒÂ­deo");
+        ComboBox<Componente> placaMae = comboComponentes("Selecione a placa-mãe");
+        ComboBox<Componente> memoria = comboComponentes("Selecione a memória RAM");
+        ComboBox<Componente> gpu = comboComponentes("Selecione a placa de vídeo");
         atualizarComboCategoria(processador, "processador");
         atualizarComboCategoria(placaMae, "placa mae");
         atualizarComboCategoria(memoria, "memoria");
@@ -1083,18 +1373,18 @@ public class NexusStudioApp extends Application {
         psuRecomendado.getStyleClass().add("verdict");
         VBox calculadoraPsu = new VBox(6, new Label("Calculadora PSU"), tdpAtual, psuRecomendado);
         calculadoraPsu.getStyleClass().add("form-card");
-        Label veredito = new Label("Selecione os componentes para verificar a configuraÃƒÂ§ÃƒÂ£o.");
+        Label veredito = new Label("Selecione os componentes para verificar a configuração.");
         veredito.getStyleClass().add("verdict");
         VBox selecionadosPainel = new VBox(6);
         selecionadosPainel.getStyleClass().add("compatible-list");
-        selecionadosPainel.getChildren().add(new Label("Os componentes selecionados aparecerÃƒÂ£o aqui."));
+        selecionadosPainel.getChildren().add(new Label("Os componentes selecionados aparecerão aqui."));
         Button verificar = botao("Verificar compatibilidade");
-        Button exportar = botao("Exportar OrÃƒÂ§amento");
+        Button exportar = botao("Exportar Orçamento");
         verificar.setOnAction(event -> {
             List<Componente> selecionados = Arrays.asList(processador.getValue(), placaMae.getValue(),
                     memoria.getValue(), gpu.getValue());
             if (selecionados.stream().anyMatch(Objects::isNull)) {
-                veredito.setText("Selecione processador, placa-mÃƒÂ£e, memÃƒÂ³ria RAM e placa de vÃƒÂ­deo.");
+                veredito.setText("Selecione processador, placa-mãe, memória RAM e placa de vídeo.");
                 return;
             }
             double preco = selecionados.stream().mapToDouble(Componente::getPreco).sum();
@@ -1108,7 +1398,7 @@ public class NexusStudioApp extends Application {
             atualizarPsu(tdp, tdpAtual, psuRecomendado);
             String conflitos = montarDescricaoConflitos(processador.getValue(), placaMae.getValue(),
                     memoria.getValue(), gpu.getValue());
-            veredito.setText(ok ? "ConfiguraÃƒÂ§ÃƒÂ£o compatÃƒÂ­vel!" : "Incompatibilidade detectada! " + conflitos);
+            veredito.setText(ok ? "Configuração compatível!" : "Incompatibilidade detectada! " + conflitos);
             veredito.getStyleClass().removeAll("verdict-ok", "verdict-error");
             veredito.getStyleClass().add(ok ? "verdict-ok" : "verdict-error");
         });
@@ -1121,9 +1411,9 @@ public class NexusStudioApp extends Application {
         campos.setHgap(12); campos.setVgap(12); campos.setPadding(new Insets(20));
         campos.getStyleClass().add("form-card");
         campos.addRow(0, rotulo("Processador"), processador);
-        campos.addRow(1, rotulo("Placa-mÃƒÂ£e"), placaMae);
-        campos.addRow(2, rotulo("MemÃƒÂ³ria RAM"), memoria);
-        campos.addRow(3, rotulo("Placa de vÃƒÂ­deo"), gpu);
+        campos.addRow(1, rotulo("Placa-mãe"), placaMae);
+        campos.addRow(2, rotulo("Memória RAM"), memoria);
+        campos.addRow(3, rotulo("Placa de vídeo"), gpu);
         campos.getColumnConstraints().addAll(new ColumnConstraints(130), colunaExpansivel());
         Runnable atualizarPsuSelecionados = () -> {
             double tdp = Arrays.asList(processador.getValue(), placaMae.getValue(), memoria.getValue(), gpu.getValue()).stream()
@@ -1175,13 +1465,13 @@ public class NexusStudioApp extends Application {
                                              Componente memoria, Componente gpu) {
         List<String> conflitos = new ArrayList<>();
         if (!compatibilidadeEntre(processador, placaMae, true)) {
-            conflitos.add("processador e placa-mÃƒÂ£e");
+            conflitos.add("processador e placa-mãe");
         }
         if (!compatibilidadeEntre(placaMae, memoria, false)) {
-            conflitos.add("placa-mÃƒÂ£e e memÃƒÂ³ria RAM");
+            conflitos.add("placa-mãe e memória RAM");
         }
         if (!compatibilidadeEntre(placaMae, gpu, false)) {
-            conflitos.add("placa-mÃƒÂ£e e placa de vÃƒÂ­deo");
+            conflitos.add("placa-mãe e placa de vídeo");
         }
         return conflitos.isEmpty() ? "" : "Conflitos: " + String.join(", ", conflitos) + ".";
     }
@@ -1219,6 +1509,7 @@ public class NexusStudioApp extends Application {
     private TableColumn<EstoqueLinha, ?> colunaEstoque(String titulo, java.util.function.Function<EstoqueLinha, ?> valor) {
         TableColumn<EstoqueLinha, Object> coluna = new TableColumn<>(titulo);
         coluna.setCellValueFactory(dado -> new ReadOnlyObjectWrapper<>(valor.apply(dado.getValue())));
+        estilizarCabecalho(coluna, "fas-boxes");
         return coluna;
     }
 
@@ -1243,27 +1534,27 @@ public class NexusStudioApp extends Application {
         TableView<Usuario> tabelaUsuarios = new TableView<>();
         tabelaUsuarios.setItems(FXCollections.observableArrayList(usuarioDAO.listarTodos()));
         tabelaUsuarios.getColumns().setAll(
-                colunaUsuario("UsuÃƒÂ¡rio", Usuario::username), colunaUsuario("Nome", Usuario::nome),
-                colunaUsuario("NÃƒÂ­vel", Usuario::nivel), colunaUsuario("Ativo", u -> u.ativo() ? "Sim" : "NÃƒÂ£o"));
-        TextField username=campo("UsuÃƒÂ¡rio"), nome=campo("Nome"), senha=campo("Senha");
+                colunaUsuario("Usuário", Usuario::username), colunaUsuario("Nome", Usuario::nome),
+                colunaUsuario("Nível", Usuario::nivel), colunaUsuario("Ativo", u -> u.ativo() ? "Sim" : "Não"));
+        TextField username=campo("Usuário"), nome=campo("Nome"), senha=campo("Senha");
         ComboBox<String> nivel=new ComboBox<>(FXCollections.observableArrayList("ADMIN","OPERADOR","USUARIO")); nivel.setValue("USUARIO");
-        Button salvar=botao("Salvar usuÃƒÂ¡rio"), excluir=botao("Excluir selecionado");
-        salvar.setOnAction(e->{if(username.getText().isBlank()||nome.getText().isBlank()||senha.getText().isBlank()){mostrarErro("Preencha usuÃƒÂ¡rio, nome e senha.");return;}try{usuarioDAO.salvar(new Usuario(0,username.getText().trim(),nome.getText().trim(),senha.getText(),nivel.getValue(),true));tabelaUsuarios.getItems().setAll(usuarioDAO.listarTodos());registrar("CRIAR","USUARIO",username.getText());mostrarInfo("UsuÃƒÂ¡rio salvo.");}catch(RuntimeException ex){mostrarErro(ex.getMessage());}});
-        excluir.setOnAction(e->{Usuario u=tabelaUsuarios.getSelectionModel().getSelectedItem();if(u==null)return;if(!confirmarExclusao("Excluir usuÃƒÂ¡rio","Deseja remover "+u.username()+"?"))return;usuarioDAO.excluir(u.id());tabelaUsuarios.getItems().setAll(usuarioDAO.listarTodos());registrar("EXCLUIR","USUARIO",u.username());});
+        Button salvar=botao("Salvar usuário"), excluir=botao("Excluir selecionado");
+        salvar.setOnAction(e->{if(username.getText().isBlank()||nome.getText().isBlank()||senha.getText().isBlank()){mostrarErro("Preencha usuário, nome e senha.");return;}try{usuarioDAO.salvar(new Usuario(0,username.getText().trim(),nome.getText().trim(),senha.getText(),nivel.getValue(),true));tabelaUsuarios.getItems().setAll(usuarioDAO.listarTodos());registrar("CRIAR","USUARIO",username.getText());mostrarInfo("Usuário salvo.");}catch(RuntimeException ex){mostrarErro(ex.getMessage());}});
+        excluir.setOnAction(e->{Usuario u=tabelaUsuarios.getSelectionModel().getSelectedItem();if(u==null)return;if(!confirmarExclusao("Excluir usuário","Deseja remover "+u.username()+"?"))return;usuarioDAO.excluir(u.id());tabelaUsuarios.getItems().setAll(usuarioDAO.listarTodos());registrar("EXCLUIR","USUARIO",u.username());});
         tabelaUsuarios.getSelectionModel().selectedItemProperty().addListener((o,a,u)->{if(u!=null){username.setText(u.username());nome.setText(u.nome());senha.setText(u.senha());nivel.setValue(u.nivel());}});
         HBox form=new HBox(8,username,nome,senha,nivel,salvar,excluir);
         VBox box=new VBox(12,form,tabelaUsuarios);box.setPadding(new Insets(18));VBox.setVgrow(tabelaUsuarios,Priority.ALWAYS);
-        return new Tab("UsuÃƒÂ¡rios",box);
+        return new Tab("Usuários",box);
     }
     private <T> TableColumn<Usuario,T> colunaUsuario(String title, java.util.function.Function<Usuario,T> fn) {
-        TableColumn<Usuario,T> c=new TableColumn<>(title); c.setCellValueFactory(v->new ReadOnlyObjectWrapper<>(fn.apply(v.getValue()))); return c;
+        TableColumn<Usuario,T> c=new TableColumn<>(title); c.setCellValueFactory(v->new ReadOnlyObjectWrapper<>(fn.apply(v.getValue()))); estilizarCabecalho(c, "fas-user"); return c;
     }
 
     private Tab criarAbaLogs() {
-        TextField filtro=campo("Filtrar por usuÃƒÂ¡rio, aÃƒÂ§ÃƒÂ£o ou entidade...");
+        TextField filtro=campo("Filtrar por usuário, ação ou entidade...");
         TableView<LogEntry> tabelaLogs=new TableView<>();
         tabelaLogs.getColumns().setAll(colunaLog("Data",l->l.dataHora().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))),
-                colunaLog("UsuÃƒÂ¡rio",LogEntry::usuario),colunaLog("AÃƒÂ§ÃƒÂ£o",LogEntry::acao),colunaLog("Entidade",LogEntry::entidade),colunaLog("Detalhes",LogEntry::detalhes));
+                colunaLog("Usuário",LogEntry::usuario),colunaLog("Ação",LogEntry::acao),colunaLog("Entidade",LogEntry::entidade),colunaLog("Detalhes",LogEntry::detalhes));
         Runnable atualizar=()->tabelaLogs.getItems().setAll(logDAO.listar(filtro.getText()));
         filtro.textProperty().addListener((o,a,b)->atualizar.run()); atualizar.run();
         Button csv=botao("Exportar CSV");
@@ -1272,7 +1563,7 @@ public class NexusStudioApp extends Application {
         return new Tab("Logs de atividade",box);
     }
     private <T> TableColumn<LogEntry,T> colunaLog(String title, java.util.function.Function<LogEntry,T> fn) {
-        TableColumn<LogEntry,T> c=new TableColumn<>(title);c.setCellValueFactory(v->new ReadOnlyObjectWrapper<>(fn.apply(v.getValue())));return c;
+        TableColumn<LogEntry,T> c=new TableColumn<>(title);c.setCellValueFactory(v->new ReadOnlyObjectWrapper<>(fn.apply(v.getValue())));estilizarCabecalho(c, "fas-clipboard-list");return c;
     }
 
     private Tab criarAbaGarantia() {
@@ -1315,7 +1606,7 @@ public class NexusStudioApp extends Application {
             if (componente.getValue() == null || tipo.getText().isBlank() || inicio.getValue() == null || fim.getValue() == null) {
                 mostrarErro("Preencha componente, tipo e datas da garantia."); return;
             }
-            if (fim.getValue().isBefore(inicio.getValue())) { mostrarErro("A data final deve ser posterior Ã¯Â¿Â½ inicial."); return; }
+            if (fim.getValue().isBefore(inicio.getValue())) { mostrarErro("A data final deve ser posterior à inicial."); return; }
             Garantia garantia = new Garantia(idEdicao[0],
                     componente.getValue().getId(), tipo.getText().trim(), inicio.getValue(), fim.getValue(), status.getValue(), notas.getText().trim());
             if (idEdicao[0] < 0) { garantiaDAO.inserir(garantia); registrar("CRIAR", "GARANTIA", tipo.getText().trim()); }
@@ -1352,6 +1643,7 @@ public class NexusStudioApp extends Application {
     private <T> TableColumn<Garantia, T> colunaGarantia(String titulo, java.util.function.Function<Garantia, T> valor) {
         TableColumn<Garantia, T> coluna = new TableColumn<>(titulo);
         coluna.setCellValueFactory(dado -> new ReadOnlyObjectWrapper<>(valor.apply(dado.getValue())));
+        estilizarCabecalho(coluna, "fas-shield-alt");
         return coluna;
     }
 
@@ -1408,18 +1700,22 @@ public class NexusStudioApp extends Application {
     }
 
     private void aplicarTamanhoFonte(Scene cena, double tamanho) {
-        if (cena != null) cena.getRoot().setStyle("-fx-font-size: " + tamanho + "px;");
+        if (cena != null) {
+            cena.getRoot().getStyleClass().removeIf(style -> style.startsWith("font-size-"));
+            cena.getRoot().getStyleClass().add("font-size-" + Math.round(tamanho));
+        }
     }
 
     private void configurarAtalhos(Scene cena) {
+        cena.getAccelerators().put(new javafx.scene.input.KeyCodeCombination(javafx.scene.input.KeyCode.K, javafx.scene.input.KeyCombination.CONTROL_DOWN), this::mostrarBuscaGlobal);
         cena.getAccelerators().put(new javafx.scene.input.KeyCodeCombination(javafx.scene.input.KeyCode.N, javafx.scene.input.KeyCombination.CONTROL_DOWN), () -> selecionarAba("Cadastrar"));
         cena.getAccelerators().put(new javafx.scene.input.KeyCodeCombination(javafx.scene.input.KeyCode.F, javafx.scene.input.KeyCombination.CONTROL_DOWN), () -> {if(buscaComponentes!=null){selecionarAba("Componentes");buscaComponentes.requestFocus();}});
         cena.getAccelerators().put(new javafx.scene.input.KeyCodeCombination(javafx.scene.input.KeyCode.R, javafx.scene.input.KeyCombination.CONTROL_DOWN), () -> atualizarTabela(componenteDAO.listarTodos()));
         cena.getAccelerators().put(new javafx.scene.input.KeyCodeCombination(javafx.scene.input.KeyCode.E, javafx.scene.input.KeyCombination.CONTROL_DOWN), this::exportarExcel);
-        cena.getAccelerators().put(new javafx.scene.input.KeyCodeCombination(javafx.scene.input.KeyCode.S, javafx.scene.input.KeyCombination.CONTROL_DOWN), () -> mostrarInfo("Use os botÃƒÂµes Salvar para confirmar alteraÃƒÂ§ÃƒÂµes."));
+        cena.getAccelerators().put(new javafx.scene.input.KeyCodeCombination(javafx.scene.input.KeyCode.S, javafx.scene.input.KeyCombination.CONTROL_DOWN), () -> mostrarInfo("Use os botões Salvar para confirmar alterações."));
         cena.getAccelerators().put(new javafx.scene.input.KeyCodeCombination(javafx.scene.input.KeyCode.Z, javafx.scene.input.KeyCombination.CONTROL_DOWN), this::desfazerUltimaAcao);
         cena.getAccelerators().put(new javafx.scene.input.KeyCodeCombination(javafx.scene.input.KeyCode.F1), () -> mostrarInfo("Atalhos: Ctrl+N novo, Ctrl+F buscar, Ctrl+R/F5 atualizar, Ctrl+E Excel, Delete excluir, Esc limpar, Ctrl+S salvar."));
-        cena.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED,e->{if(e.getCode()==javafx.scene.input.KeyCode.F5){atualizarTabela(componenteDAO.listarTodos());e.consume();}else if(e.getCode()==javafx.scene.input.KeyCode.DELETE){excluirSelecionado();e.consume();}else if(e.getCode()==javafx.scene.input.KeyCode.ESCAPE){if(buscaComponentes!=null)buscaComponentes.clear();tabela.getSelectionModel().clearSelection();}});
+        cena.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED,e->{if(e.getCode()==javafx.scene.input.KeyCode.F5){atualizarTabela(componenteDAO.listarTodos());e.consume();}else if(e.getCode()==javafx.scene.input.KeyCode.DELETE){excluirSelecionado();e.consume();}else if(e.getCode()==javafx.scene.input.KeyCode.ESCAPE){if(buscaOverlay != null && buscaOverlay.isVisible()) ocultarBuscaGlobal(); else {if(buscaComponentes!=null)buscaComponentes.clear();tabela.getSelectionModel().clearSelection();}}});
     }
     private void selecionarAba(String titulo) {if(abas==null)return;for(int i=0;i<abas.getTabs().size();i++)if(abas.getTabs().get(i).getText().equals(titulo)){abas.getSelectionModel().select(i);return;}}
 
@@ -1441,7 +1737,7 @@ public class NexusStudioApp extends Application {
     }
 
     private void configurarTabela(TableView<Componente> tabela, String vazio) {
-        tabela.setItems(FXCollections.observableArrayList());
+        tabela.setItems(componentesPagina);
         tabela.getColumns().setAll(criarColunas());
         tabela.setPlaceholder(mensagemVazia(vazio));
         tabela.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
@@ -1452,7 +1748,7 @@ public class NexusStudioApp extends Application {
                 if (!empty && item != null) getStyleClass().add(getIndex() % 2 == 0 ? "even-row" : "odd-row");
             }
         });
-        tabela.getItems().addListener((javafx.collections.ListChangeListener<Componente>) change ->
+        componentesPagina.addListener((javafx.collections.ListChangeListener<Componente>) change ->
                 ajustarAlturaTabela(tabela));
         ajustarAlturaTabela(tabela);
     }
@@ -1488,7 +1784,7 @@ public class NexusStudioApp extends Application {
         TableColumn<Componente, String> nome = coluna("Nome", Componente::getNome);
         TableColumn<Componente, String> fabricante = coluna("Fabricante", c -> texto(c.getFabricante()));
         TableColumn<Componente, String> modelo = coluna("Modelo", Componente::getModelo);
-        TableColumn<Componente, Number> preco = coluna("PreÃƒÂ§o", Componente::getPreco);
+        TableColumn<Componente, Number> preco = coluna("Preço", Componente::getPreco);
         TableColumn<Componente, Number> tdp = coluna("TDP (W)", Componente::getTdpWatts);
         return List.of(id, nome, fabricante, modelo, preco, tdp);
     }
@@ -1496,13 +1792,29 @@ public class NexusStudioApp extends Application {
     private <T> TableColumn<Componente, T> coluna(String titulo, java.util.function.Function<Componente, T> valor) {
         TableColumn<Componente, T> coluna = new TableColumn<>(titulo);
         coluna.setCellValueFactory(dado -> new ReadOnlyObjectWrapper<>(valor.apply(dado.getValue())));
+        String icon = switch (titulo) {
+            case "ID" -> "fas-hashtag";
+            case "Nome" -> "fas-font";
+            case "Fabricante" -> "fas-industry";
+            case "Modelo" -> "fas-barcode";
+            case "Preço" -> "fas-dollar-sign";
+            case "TDP (W)" -> "fas-bolt";
+            default -> "fas-microchip";
+        };
+        estilizarCabecalho(coluna, icon);
         return coluna;
+    }
+
+    private void estilizarCabecalho(TableColumn<?, ?> coluna, String literal) {
+        String titulo = coluna.getText();
+        coluna.setGraphic(new HBox(5, icone(literal), new Label(titulo)));
+        coluna.setText("");
     }
 
     private List<Componente> filtrar(String tipo, String valor1, String valor2) {
         return switch (tipo) {
-            case "Faixa de preÃƒÂ§o" -> componenteDAO.filtrarPorPreco(numero(valor1), numero(valor2));
-            case "TDP mÃƒÂ¡ximo" -> componenteDAO.filtrarPorTdpMaximo(numero(valor1));
+            case "Faixa de preço" -> componenteDAO.filtrarPorPreco(numero(valor1), numero(valor2));
+            case "TDP máximo" -> componenteDAO.filtrarPorTdpMaximo(numero(valor1));
             case "Fabricante" -> componenteDAO.buscarPorFabricante(valor1.trim());
             default -> componenteDAO.listarTodos();
         };
@@ -1512,7 +1824,48 @@ public class NexusStudioApp extends Application {
     private double numero(TextField campo) { return numero(campo.getText()); }
     private TextField campo(String prompt) { TextField campo = new TextField(); campo.setPromptText(prompt); campo.setPrefWidth(220); return campo; }
     private Label rotulo(String texto) { Label rotulo = new Label(texto); rotulo.getStyleClass().add("field-label"); return rotulo; }
-    private Button botao(String texto) { Button botao = new Button(texto); botao.setMinWidth(140); botao.setPrefHeight(34); botao.getStyleClass().add("primary-button"); return botao; }
+    private Button botao(String texto) {
+        Button botao = new Button(texto);
+        botao.setMinWidth(140);
+        botao.setPrefHeight(34);
+        botao.getStyleClass().add("primary-button");
+        String icon = switch (texto) {
+            case "Atualizar", "Atualizar selecionado" -> "fas-sync-alt";
+            case "Excluir selecionado", "Excluir selecionada", "Excluir estoque" -> "fas-trash-alt";
+            case "Cadastrar componente", "Salvar usuário", "Salvar garantia" -> "fas-save";
+            case "Importar CSV" -> "fas-file-import";
+            case "Exportar exemplo CSV", "Exportar CSV" -> "fas-file-export";
+            case "Exportar PDF" -> "fas-file-pdf";
+            case "Exportar Excel" -> "fas-file-excel";
+            case "Verificar compatibilidade" -> "fas-check-circle";
+            case "Exportar Orçamento" -> "fas-file-invoice-dollar";
+            case "Adicionar imagem" -> "fas-image";
+            case "Atualizar preço" -> "fas-tag";
+            case "Fazer backup agora" -> "fas-database";
+            case "Entrar" -> "fas-sign-in-alt";
+            case "Desfazer" -> "fas-undo";
+            default -> null;
+        };
+        if (icon != null) botao.setGraphic(icone(icon));
+        adicionarRipple(botao);
+        return botao;
+    }
+
+    private void adicionarRipple(Button botao) {
+        botao.setOnMousePressed(event -> {
+            ScaleTransition escala = new ScaleTransition(Duration.millis(70), botao);
+            escala.setToX(.97);
+            escala.setToY(.97);
+            escala.play();
+        });
+        botao.setOnMouseReleased(event -> {
+            ScaleTransition escala = new ScaleTransition(Duration.millis(120), botao);
+            escala.setToX(1);
+            escala.setToY(1);
+            escala.setInterpolator(Interpolator.EASE_OUT);
+            escala.play();
+        });
+    }
     private ColumnConstraints colunaExpansivel() { ColumnConstraints c = new ColumnConstraints(); c.setHgrow(Priority.ALWAYS); return c; }
 
     private void carregarCategorias() {
@@ -1587,19 +1940,19 @@ public class NexusStudioApp extends Application {
     }
 
     private void exportarComponentesPdf(List<Componente> lista, String titulo) {
-        if (lista.isEmpty()) { mostrarErro("NÃƒÂ£o hÃƒÂ¡ componentes para exportar."); return; }
+        if (lista.isEmpty()) { mostrarErro("Não há componentes para exportar."); return; }
         try {
             Path desktop = Path.of(System.getProperty("user.home"), "Desktop");
             Files.createDirectories(desktop);
-            String prefixo = titulo.startsWith("configuraÃƒÂ§ÃƒÂ£o") ? "nexus-configuracao-" : "nexus-relatorio-";
+            String prefixo = titulo.startsWith("configuração") ? "nexus-configuracao-" : "nexus-relatorio-";
             Path arquivo = desktop.resolve(prefixo + LocalDate.now() + ".pdf");
             try (PdfWriter writer = new PdfWriter(arquivo.toString());
                  PdfDocument pdf = new PdfDocument(writer);
                  Document documento = new Document(pdf)) {
-                documento.add(new Paragraph("Nexus Studio Ã¢â‚¬â€ RelatÃƒÂ³rio de Componentes"));
+                documento.add(new Paragraph("Nexus Studio — Relatório de Componentes"));
                 documento.add(new Paragraph(titulo));
                 documento.add(new Paragraph("Gerado em " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
-                if (titulo.startsWith("configuraÃƒÂ§ÃƒÂ£o")) {
+                if (titulo.startsWith("configuração")) {
                     double totalPreco = lista.stream().mapToDouble(Componente::getPreco).sum();
                     double totalTdp = lista.stream().mapToDouble(Componente::getTdpWatts).sum();
                     documento.add(new Paragraph(String.format("Total: R$ %.2f | TDP total: %.0f W",
@@ -1607,7 +1960,7 @@ public class NexusStudioApp extends Application {
                 }
 
                 Table tabelaPdf = new Table(UnitValue.createPercentArray(new float[]{1, 3, 2, 2, 2, 1})).useAllAvailableWidth();
-                for (String cabecalho : new String[]{"ID", "Nome", "Fabricante", "Modelo", "PreÃƒÂ§o (R$)", "TDP (W)"}) tabelaPdf.addHeaderCell(new Cell().add(new Paragraph(cabecalho)));
+                for (String cabecalho : new String[]{"ID", "Nome", "Fabricante", "Modelo", "Preço (R$)", "TDP (W)"}) tabelaPdf.addHeaderCell(new Cell().add(new Paragraph(cabecalho)));
                 for (Componente c : lista) {
                     tabelaPdf.addCell(String.valueOf(c.getId())); tabelaPdf.addCell(c.getNome());
                     tabelaPdf.addCell(texto(c.getFabricante())); tabelaPdf.addCell(c.getModelo());
@@ -1616,7 +1969,7 @@ public class NexusStudioApp extends Application {
                 documento.add(tabelaPdf);
             }
             mostrarInfo("PDF salvo em: " + arquivo);
-        } catch (Exception e) { mostrarErro("NÃƒÂ£o foi possÃƒÂ­vel gerar o PDF: " + e.getMessage()); }
+        } catch (Exception e) { mostrarErro("Não foi possível gerar o PDF: " + e.getMessage()); }
     }
 
     private void exportarExcel() {
@@ -1636,12 +1989,12 @@ public class NexusStudioApp extends Application {
             }
             registrar("EXPORTAR", "EXCEL", arquivo.toString());
             mostrarInfo("Excel exportado em: " + arquivo);
-        } catch (IOException e) { mostrarErro("NÃƒÂ£o foi possÃƒÂ­vel gerar o Excel: " + e.getMessage()); }
+        } catch (IOException e) { mostrarErro("Não foi possível gerar o Excel: " + e.getMessage()); }
     }
 
     private void criarPlanilhaComponentes(Workbook w, CellStyle style) {
         Sheet s = w.createSheet("Componentes");
-        String[] h = {"ID","Categoria","Nome","Fabricante","Modelo","PreÃƒÂ§o (R$)","TDP (W)"};
+        String[] h = {"ID","Categoria","Nome","Fabricante","Modelo","Preço (R$)","TDP (W)"};
         Row r = s.createRow(0); for (int i=0;i<h.length;i++) { r.createCell(i).setCellValue(h[i]); r.getCell(i).setCellStyle(style); }
         Map<Integer,String> cats = categoriaDAO.listarTodas().stream().collect(Collectors.toMap(Categoria::getId, Categoria::getNome));
         int row = 1;
@@ -1652,7 +2005,7 @@ public class NexusStudioApp extends Application {
         ajustarColunas(s,h.length);
     }
     private void criarPlanilhaEstoque(Workbook w, CellStyle style) {
-        Sheet s=w.createSheet("Estoque"); String[] h={"Componente","Modelo","Quantidade","LocalizaÃƒÂ§ÃƒÂ£o"};
+        Sheet s=w.createSheet("Estoque"); String[] h={"Componente","Modelo","Quantidade","Localização"};
         Row r=s.createRow(0); for(int i=0;i<h.length;i++){r.createCell(i).setCellValue(h[i]);r.getCell(i).setCellStyle(style);}
         int row=1; for(Componente c:componenteDAO.listarTodos()){Inventario i=inventarioDAO.buscarPorComponente(c.getId());Row x=s.createRow(row++);x.createCell(0).setCellValue(c.getNome());x.createCell(1).setCellValue(c.getModelo());x.createCell(2).setCellValue(i==null?0:i.quantidade());x.createCell(3).setCellValue(i==null?"":texto(i.localizacao()));}
         ajustarColunas(s,h.length);
@@ -1681,17 +2034,17 @@ public class NexusStudioApp extends Application {
             Path arquivo=desktop.resolve("nexus-orcamento-"+LocalDate.now()+".pdf");
             try(PdfWriter writer=new PdfWriter(arquivo.toString()); PdfDocument pdf=new PdfDocument(writer); Document doc=new Document(pdf)){
                 doc.add(new Paragraph("NEXUS STUDIO").setBold().setFontSize(22));
-                doc.add(new Paragraph("OrÃƒÂ§amento personalizado de computador").setFontSize(15));
+                doc.add(new Paragraph("Orçamento personalizado de computador").setFontSize(15));
                 doc.add(new Paragraph("Emitido em "+LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
                 Table tabela=new Table(UnitValue.createPercentArray(new float[]{4,2,2})).useAllAvailableWidth();
-                tabela.addHeaderCell("Componente"); tabela.addHeaderCell("Modelo"); tabela.addHeaderCell("PreÃƒÂ§o");
+                tabela.addHeaderCell("Componente"); tabela.addHeaderCell("Modelo"); tabela.addHeaderCell("Preço");
                 for(Componente c:itens){tabela.addCell(c.getNome());tabela.addCell(c.getModelo());tabela.addCell(String.format("R$ %.2f",c.getPreco()));}
                 doc.add(tabela);
                 doc.add(new Paragraph(String.format("TOTAL: R$ %.2f",itens.stream().mapToDouble(Componente::getPreco).sum())).setBold().setFontSize(16));
-                doc.add(new Paragraph("Valores sujeitos a alteraÃƒÂ§ÃƒÂ£o. Este documento ÃƒÂ© um orÃƒÂ§amento sem compromisso."));
+                doc.add(new Paragraph("Valores sujeitos a alteração. Este documento é um orçamento sem compromisso."));
             }
-            registrar("EXPORTAR","ORCAMENTO",arquivo.toString()); mostrarInfo("OrÃƒÂ§amento salvo em: "+arquivo);
-        } catch(Exception e){ mostrarErro("NÃƒÂ£o foi possÃƒÂ­vel gerar o orÃƒÂ§amento: "+e.getMessage()); }
+            registrar("EXPORTAR","ORCAMENTO",arquivo.toString()); mostrarInfo("Orçamento salvo em: "+arquivo);
+        } catch(Exception e){ mostrarErro("Não foi possível gerar o orçamento: "+e.getMessage()); }
     }
 
 
@@ -1705,7 +2058,7 @@ public class NexusStudioApp extends Application {
         aplicarTamanhoFonte(cena, PreferencesManager.fontSize());
     }
 
-    private String texto(String valor) { return valor == null || valor.isBlank() ? "NÃƒÂ£o informado" : valor; }
+    private String texto(String valor) { return valor == null || valor.isBlank() ? "Não informado" : valor; }
     private boolean iguais(String a, String b) { return a != null && b != null && !a.isBlank() && a.equalsIgnoreCase(b); }
     private String normalizar(String valor) {
         return Normalizer.normalize(valor, Normalizer.Form.NFD).replaceAll("\\p{M}", "")
@@ -1720,7 +2073,7 @@ public class NexusStudioApp extends Application {
     private boolean confirmarExclusao(String titulo, String mensagem) {
         Dialog<ButtonType> dialog = new Dialog<>();
         dialog.setTitle(titulo);
-        dialog.setHeaderText("ConfirmaÃƒÂ§ÃƒÂ£o necessÃƒÂ¡ria");
+        dialog.setHeaderText("Confirmação necessária");
         Label texto = new Label(mensagem);
         texto.setWrapText(true);
         texto.getStyleClass().add("delete-message");

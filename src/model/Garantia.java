@@ -37,6 +37,11 @@ public class Garantia {
     public LocalDate getDataFim() { return dataFim; }
     public String getStatus() { return status; }
     public String getNotas() { return notas; }
+    public LocalDate getDataCompra() { return dataInicio; }
+    public int getPrazoMeses() { return (int) java.time.temporal.ChronoUnit.MONTHS.between(dataInicio, dataFim); }
+    public LocalDate getDataVencimento() { return dataFim; }
+    public String getFornecedor() { return tipo; }
+    public String getNumeroNota() { return notas; }
 
     @Override
     public String toString() {

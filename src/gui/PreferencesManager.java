@@ -1,10 +1,11 @@
 package gui;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.Reader;
+import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 
 public final class PreferencesManager {
@@ -28,6 +29,14 @@ public final class PreferencesManager {
         properties.setProperty("componentPageSize", Integer.toString(value));
         salvar(properties);
     }
+    public static boolean componentCards() {
+        return carregar().getProperty("componentView", "table").equalsIgnoreCase("cards");
+    }
+    public static void setComponentCards(boolean value) {
+        Properties properties = carregar();
+        properties.setProperty("componentView", value ? "cards" : "table");
+        salvar(properties);
+    }
     public static double fontSize() {
         try { double value = Double.parseDouble(carregar().getProperty("fontSize", "12")); return Double.isFinite(value) ? Math.max(10, Math.min(16, value)) : 12; }
         catch (NumberFormatException e) { return 12; }
@@ -40,19 +49,19 @@ public final class PreferencesManager {
     private static Properties carregar() {
         Properties properties = new Properties();
         if (Files.exists(FILE)) {
-            try (InputStream input = Files.newInputStream(FILE)) { properties.load(input); }
-            catch (IOException e) { System.err.println("NÃ£o foi possÃ­vel ler preferÃªncias: " + e.getMessage()); }
+            try (Reader input = Files.newBufferedReader(FILE, StandardCharsets.UTF_8)) { properties.load(input); }
+            catch (IOException e) { System.err.println("Não foi possível ler preferências: " + e.getMessage()); }
         }
         return properties;
     }
     private static void salvar(Properties properties) {
         try {
             Files.createDirectories(FILE.getParent());
-            try (OutputStream output = Files.newOutputStream(FILE)) { properties.store(output, "Nexus Studio preferences"); }
+            try (Writer output = Files.newBufferedWriter(FILE, StandardCharsets.UTF_8)) {
+                properties.store(output, "Nexus Studio preferences");
+            }
         } catch (IOException e) {
-            System.err.println("NÃ£o foi possÃ­vel salvar preferÃªncias: " + e.getMessage());
+            System.err.println("Não foi possível salvar preferências: " + e.getMessage());
         }
     }
 }
-
-

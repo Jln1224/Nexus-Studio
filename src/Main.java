@@ -24,25 +24,25 @@ public class Main {
         while (opcao != 0) {
             System.out.println("""
                 
-                ╔══════════════════════════════════╗
-                ║      NEXUS STUDIO — MENU         ║
-                ╠══════════════════════════════════╣
-                ║ 1.  Listar componentes           ║
-                ║ 2.  Cadastrar componente         ║
-                ║ 3.  Buscar componente por ID     ║
-                ║ 4.  Atualizar componente         ║
-                ║ 5.  Deletar componente           ║
-                ║ 6.  Listar categorias            ║
-                ║ 7.  Adicionar especificação      ║
-                ║ 8.  Ver specs de um componente   ║
-                ║ 9.  Adicionar compatibilidade    ║
-                ║ 10. Buscar por socket            ║
-                ║ 11. Filtrar por faixa de preço   ║
-                ║ 12. Filtrar por TDP máximo       ║
-                ║ 13. Buscar por fabricante        ║
-                ║ 14. Listar ordenado por preço    ║
-                ║ 0.  Sair                         ║
-                ╚══════════════════════════════════╝
+                +----------------------------------+
+                +      NEXUS STUDIO - MENU         +
+                |----------------------------------|
+                | 1.  Listar componentes           |
+                | 2.  Cadastrar componente         |
+                | 3.  Buscar componente por ID     |
+                | 4.  Atualizar componente         |
+                | 5.  Deletar componente           |
+                | 6.  Listar categorias            |
+                | 7.  Adicionar especificação      |
+                | 8.  Ver specs de um componente   |
+                | 9.  Adicionar compatibilidade    |
+                | 10. Buscar por socket            |
+                | 11. Filtrar por faixa de preço   |
+                | 12. Filtrar por TDP máximo       |
+                | 13. Buscar por fabricante        |
+                | 14. Listar ordenado por preço    |
+                | 0.  Sair                         |
+                +----------------------------------+
                 Escolha:\s""");
 
             opcao = Integer.parseInt(scanner.nextLine());
@@ -180,7 +180,7 @@ public class Main {
             System.out.print("Socket (ex: AM4, LGA1700, PCIe 4.0): "); String socket = scanner.nextLine();
             System.out.print("Padrão (ex: DDR5, ATX, deixe vazio): ");  String padrao = scanner.nextLine();
             compatDAO.inserir(new Compatibilidade(compId, socket, padrao));
-            System.out.print("Adicionar mais? (s/n): ");
+            System.out.print("Adicionar maisó (s/n): ");
             continuar = scanner.nextLine().equalsIgnoreCase("s");
         }
     }
